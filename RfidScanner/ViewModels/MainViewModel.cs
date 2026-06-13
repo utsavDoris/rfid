@@ -31,6 +31,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool _isSimulating;
 
     [ObservableProperty]
+    private bool _isInventoryRunning;
+
+    [ObservableProperty]
     private BluetoothDeviceInfo? _selectedDevice;
 
     [ObservableProperty]
@@ -46,8 +49,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel()
     {
         _bluetooth.DataReceived += OnDataReceived;
+        _bluetooth.TagReceived += tag => _tagManager.ProcessTag(tag);
         _bluetooth.StatusChanged += msg => RunOnUi(() => StatusMessage = msg);
-        _bluetooth.ConnectionChanged += connected => RunOnUi(() => IsConnected = connected);
+        _bluetooth.ConnectionChanged += connected => RunOnUi(() =>
+        {
+            IsConnected = connected;
+            if (!connected)
+                IsInventoryRunning = false;
+        });
         _tagManager.TagAddedOrUpdated += OnTagProcessed;
         _tagManager.Start();
         LoadHistory();
@@ -96,8 +105,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            StatusMessage = $"Connecting to {SelectedDevice.DisplayName}...";
+            StatusMessage = $"Connecting to {SelectedDevice.DeviceLabel}...";
             await _bluetooth.ConnectAsync(SelectedDevice);
+
+            if (_bluetooth.IsChainwayDevice)
+            {
+                StatusMessage = "R6 connected. Starting inventory...";
+                await StartInventoryAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -106,13 +121,57 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    [RelayCommand(CanExecute = nameof(CanStartInventory))]
+    private async Task StartInventoryAsync()
+    {
+        try
+        {
+            await _bluetooth.StartInventoryAsync();
+            IsInventoryRunning = true;
+            StatusMessage = "Scanning for RFID tags — hold R6 near tags.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Start scan failed: {ex.Message}";
+            IsInventoryRunning = false;
+        }
+        finally
+        {
+            RefreshCommands();
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanStopInventory))]
+    private async Task StopInventoryAsync()
+    {
+        try
+        {
+            await _bluetooth.StopInventoryAsync();
+            IsInventoryRunning = false;
+            StatusMessage = "Scan stopped.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Stop scan failed: {ex.Message}";
+        }
+        finally
+        {
+            RefreshCommands();
+        }
+    }
+
+    private bool CanStartInventory() => IsConnected && !IsInventoryRunning && !IsSimulating;
+    private bool CanStopInventory() => IsConnected && IsInventoryRunning;
+
     private bool CanConnect() => SelectedDevice != null && !IsConnected && !IsSimulating;
 
     [RelayCommand(CanExecute = nameof(CanDisconnect))]
     private async Task DisconnectAsync()
     {
         await _bluetooth.DisconnectAsync();
+        IsInventoryRunning = false;
         StatusMessage = "Disconnected.";
+        RefreshCommands();
     }
 
     private bool CanDisconnect() => IsConnected;
@@ -176,9 +235,14 @@ public partial class MainViewModel : ObservableObject, IDisposable
     partial void OnSelectedDeviceChanged(BluetoothDeviceInfo? value) => ConnectCommand.NotifyCanExecuteChanged();
     partial void OnIsConnectedChanged(bool value) => RefreshCommands();
     partial void OnIsSimulatingChanged(bool value) => RefreshCommands();
+    partial void OnIsInventoryRunningChanged(bool value) => RefreshCommands();
 
     private void OnDataReceived(byte[] data)
     {
+        // Chainway tags are parsed inside BluetoothService; keep fallback for generic readers.
+        if (_bluetooth.IsChainwayDevice)
+            return;
+
         var tag = RfidParser.Parse(data);
         if (tag != null)
             _tagManager.ProcessTag(tag);
@@ -232,6 +296,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         ConnectCommand.NotifyCanExecuteChanged();
         DisconnectCommand.NotifyCanExecuteChanged();
+        StartInventoryCommand.NotifyCanExecuteChanged();
+        StopInventoryCommand.NotifyCanExecuteChanged();
     }
 
     private static void RunOnUi(Action action)

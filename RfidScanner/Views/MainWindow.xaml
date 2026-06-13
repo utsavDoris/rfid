@@ -61,6 +61,9 @@
                                             <DataTrigger Binding="{Binding IsConnected}" Value="True">
                                                 <Setter Property="Fill" Value="{StaticResource SuccessBrush}"/>
                                             </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsInventoryRunning}" Value="True">
+                                                <Setter Property="Fill" Value="#4CAF50"/>
+                                            </DataTrigger>
                                             <DataTrigger Binding="{Binding IsSimulating}" Value="True">
                                                 <Setter Property="Fill" Value="#FFC107"/>
                                             </DataTrigger>
@@ -76,8 +79,8 @@
                                             <DataTrigger Binding="{Binding IsConnected}" Value="True">
                                                 <Setter Property="Text" Value="Connected"/>
                                             </DataTrigger>
-                                            <DataTrigger Binding="{Binding IsSimulating}" Value="True">
-                                                <Setter Property="Text" Value="Simulating"/>
+                                            <DataTrigger Binding="{Binding IsInventoryRunning}" Value="True">
+                                                <Setter Property="Text" Value="Scanning"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -156,7 +159,7 @@
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <StackPanel>
-                                    <TextBlock Text="{Binding DisplayName}" FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding DeviceLabel}" FontWeight="SemiBold"/>
                                     <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}">
                                         <Run Text="{Binding ConnectionType, Mode=OneWay}"/>
                                         <Run Text=" · "/>
@@ -171,6 +174,14 @@
                         <Button Content="Connect"
                                 Style="{StaticResource PrimaryButton}"
                                 Command="{Binding ConnectCommand}"
+                                Margin="0,0,0,6"/>
+                        <Button Content="▶ Start Scan"
+                                Style="{StaticResource PrimaryButton}"
+                                Command="{Binding StartInventoryCommand}"
+                                Margin="0,0,0,6"/>
+                        <Button Content="■ Stop Scan"
+                                Style="{StaticResource DangerButton}"
+                                Command="{Binding StopInventoryCommand}"
                                 Margin="0,0,0,6"/>
                         <Button Content="Disconnect"
                                 Style="{StaticResource SecondaryButton}"
@@ -288,7 +299,7 @@
 
         <!-- Footer -->
         <TextBlock Grid.Row="2"
-                   Text="Pair SPP readers in Windows Bluetooth settings first · No hardware? Use Start Simulation"
+                   Text="Chainway R6: power on device, click Scan Devices, select Nordic_UART_CW, then Connect"
                    Foreground="{StaticResource TextSecondaryBrush}"
                    FontSize="11"
                    Margin="0,10,0,0"
