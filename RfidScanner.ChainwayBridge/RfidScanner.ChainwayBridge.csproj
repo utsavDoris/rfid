@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <RootNamespace>RfidScanner.ChainwayBridge</RootNamespace>
+    <AssemblyName>RfidScanner.ChainwayBridge</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BLEDeviceAPI">
+      <HintPath>Libs\BLEDeviceAPI.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="BLEAPI1">
+      <HintPath>Libs\BLEAPI1.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="BLEAPI2">
+      <HintPath>Libs\BLEAPI2.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Common">
+      <HintPath>Libs\Common.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="WindowsFormsControl">
+      <HintPath>Libs\WindowsFormsControl.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Libs\*.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+
+</Project>

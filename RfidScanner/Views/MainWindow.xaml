@@ -163,7 +163,7 @@
                                     <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}">
                                         <Run Text="{Binding ConnectionType, Mode=OneWay}"/>
                                         <Run Text=" · "/>
-                                        <Run Text="{Binding Address, Mode=OneWay}"/>
+                                        <Run Text="{Binding Mac, Mode=OneWay}"/>
                                     </TextBlock>
                                 </StackPanel>
                             </DataTemplate>

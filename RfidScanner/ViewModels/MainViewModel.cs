@@ -48,7 +48,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public MainViewModel()
     {
-        _bluetooth.DataReceived += OnDataReceived;
         _bluetooth.TagReceived += tag => _tagManager.ProcessTag(tag);
         _bluetooth.StatusChanged += msg => RunOnUi(() => StatusMessage = msg);
         _bluetooth.ConnectionChanged += connected => RunOnUi(() =>
@@ -236,17 +235,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     partial void OnIsConnectedChanged(bool value) => RefreshCommands();
     partial void OnIsSimulatingChanged(bool value) => RefreshCommands();
     partial void OnIsInventoryRunningChanged(bool value) => RefreshCommands();
-
-    private void OnDataReceived(byte[] data)
-    {
-        // Chainway tags are parsed inside BluetoothService; keep fallback for generic readers.
-        if (_bluetooth.IsChainwayDevice)
-            return;
-
-        var tag = RfidParser.Parse(data);
-        if (tag != null)
-            _tagManager.ProcessTag(tag);
-    }
 
     private void OnTagProcessed(RfidTag tag)
     {
