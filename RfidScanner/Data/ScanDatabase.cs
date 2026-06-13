@@ -43,6 +43,7 @@ public class ScanDatabase : IDisposable
 
         EnsureColumn("Epc", "ALTER TABLE Scans ADD COLUMN Epc TEXT NOT NULL DEFAULT '';");
         EnsureColumn("Tid", "ALTER TABLE Scans ADD COLUMN Tid TEXT NOT NULL DEFAULT '';");
+        EnsureColumn("RssiDisplay", "ALTER TABLE Scans ADD COLUMN RssiDisplay TEXT NOT NULL DEFAULT '';");
     }
 
     private void EnsureColumn(string columnName, string alterSql)
@@ -66,14 +67,15 @@ public class ScanDatabase : IDisposable
 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO Scans (TagId, Epc, Tid, TagType, Rssi, ReadCount, ScannedAt)
-            VALUES ($tagId, $epc, $tid, $tagType, $rssi, $readCount, $scannedAt);
+            INSERT INTO Scans (TagId, Epc, Tid, TagType, Rssi, RssiDisplay, ReadCount, ScannedAt)
+            VALUES ($tagId, $epc, $tid, $tagType, $rssi, $rssiDisplay, $readCount, $scannedAt);
             """;
         cmd.Parameters.AddWithValue("$tagId", tag.UniqueKey);
         cmd.Parameters.AddWithValue("$epc", tag.Epc);
         cmd.Parameters.AddWithValue("$tid", tag.Tid);
         cmd.Parameters.AddWithValue("$tagType", tag.TagType);
         cmd.Parameters.AddWithValue("$rssi", tag.Rssi);
+        cmd.Parameters.AddWithValue("$rssiDisplay", tag.RssiDisplay);
         cmd.Parameters.AddWithValue("$readCount", tag.ReadCount);
         cmd.Parameters.AddWithValue("$scannedAt", tag.ScannedAt.ToString("o"));
         cmd.ExecuteNonQuery();
@@ -86,7 +88,7 @@ public class ScanDatabase : IDisposable
 
         using var cmd = _connection.CreateCommand();
         cmd.CommandText = """
-            SELECT TagId, Epc, Tid, TagType, Rssi, ReadCount, ScannedAt
+            SELECT TagId, Epc, Tid, TagType, Rssi, RssiDisplay, ReadCount, ScannedAt
             FROM Scans
             ORDER BY ScannedAt DESC
             LIMIT $limit;
@@ -96,21 +98,27 @@ public class ScanDatabase : IDisposable
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
-            var epc = reader.FieldCount > 2 && !reader.IsDBNull(1) ? reader.GetString(1) : string.Empty;
-            var tid = reader.FieldCount > 2 && !reader.IsDBNull(2) ? reader.GetString(2) : string.Empty;
+            var tagId = reader.GetString(reader.GetOrdinal("TagId"));
+            var epc = GetStringOrEmpty(reader, "Epc");
+            var tid = GetStringOrEmpty(reader, "Tid");
+            if (string.IsNullOrWhiteSpace(epc))
+                epc = tagId;
 
-            if (string.IsNullOrWhiteSpace(epc) && !reader.IsDBNull(0))
-                epc = reader.GetString(0);
+            var rssi = reader.GetInt32(reader.GetOrdinal("Rssi"));
+            var rssiDisplay = GetStringOrEmpty(reader, "RssiDisplay");
+            if (string.IsNullOrWhiteSpace(rssiDisplay))
+                rssiDisplay = RfidTagMapper.FormatRssiDisplay(null, rssi);
 
-            results.Add(new RfidTag
-            {
-                Epc = epc,
-                Tid = tid,
-                TagType = reader.GetString(3),
-                Rssi = reader.GetInt32(4),
-                ReadCount = reader.GetInt32(5),
-                ScannedAt = DateTime.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)
-            });
+            var tag = RfidTagMapper.FromScanned(epc, tid, string.Empty, rssiDisplay);
+            tag.TagType = reader.GetString(reader.GetOrdinal("TagType"));
+            tag.Rssi = rssi;
+            tag.RssiDisplay = rssiDisplay;
+            tag.ReadCount = reader.GetInt32(reader.GetOrdinal("ReadCount"));
+            tag.ScannedAt = DateTime.Parse(
+                reader.GetString(reader.GetOrdinal("ScannedAt")),
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind);
+            results.Add(tag);
         }
 
         return results;
@@ -124,7 +132,7 @@ public class ScanDatabase : IDisposable
 
         var tags = GetHistory(10000);
         var sb = new StringBuilder();
-        sb.AppendLine("Epc,Tid,TagType,Rssi,ReadCount,ScannedAt");
+        sb.AppendLine("Epc,Tid,Type,Rssi,RssiDisplay,ReadCount,ScannedAt");
 
         foreach (var tag in tags)
         {
@@ -133,6 +141,7 @@ public class ScanDatabase : IDisposable
                 EscapeCsv(tag.Tid),
                 EscapeCsv(tag.TagType),
                 tag.Rssi.ToString(CultureInfo.InvariantCulture),
+                EscapeCsv(tag.RssiDisplay),
                 tag.ReadCount.ToString(CultureInfo.InvariantCulture),
                 tag.ScannedAt.ToString("o", CultureInfo.InvariantCulture)));
         }
@@ -155,6 +164,19 @@ public class ScanDatabase : IDisposable
         if (value.Contains(",") || value.Contains("\"") || value.Contains("\n"))
             return $"\"{value.Replace("\"", "\"\"")}\"";
         return value;
+    }
+
+    private static string GetStringOrEmpty(SqliteDataReader reader, string column)
+    {
+        try
+        {
+            var ordinal = reader.GetOrdinal(column);
+            return reader.IsDBNull(ordinal) ? string.Empty : reader.GetString(ordinal);
+        }
+        catch (IndexOutOfRangeException)
+        {
+            return string.Empty;
+        }
     }
 
     public void Dispose()

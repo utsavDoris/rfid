@@ -35,14 +35,8 @@ public class BluetoothService : IDisposable
         _reader.DeviceRemoved += id => DeviceRemoved?.Invoke(id);
         _reader.ScanCompleted += () => ScanCompleted?.Invoke();
         _reader.ConnectionChanged += connected => ConnectionChanged?.Invoke(connected);
-        _reader.TagReceived += tag => TagReceived?.Invoke(new RfidTag
-        {
-            Epc = tag.Epc,
-            Tid = tag.Tid,
-            User = tag.User,
-            TagType = !string.IsNullOrWhiteSpace(tag.Tid) ? "EPC+TID" : "EPC",
-            Rssi = tag.Rssi
-        });
+        _reader.TagReceived += tag => TagReceived?.Invoke(
+            RfidTagMapper.FromScanned(tag.Epc, tag.Tid, tag.User, tag.RssiRaw));
     }
 
     private static void RunOnUiThread(Action action)

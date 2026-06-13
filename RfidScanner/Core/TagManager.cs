@@ -49,8 +49,9 @@ public class TagManager
                     existing.Tid = incoming.Tid;
                 if (!string.IsNullOrWhiteSpace(incoming.User))
                     existing.User = incoming.User;
-                if (!string.IsNullOrWhiteSpace(incoming.TagType))
-                    existing.TagType = incoming.TagType;
+                existing.TagType = RfidTagMapper.ResolveTagType(existing.Epc, existing.Tid, existing.User);
+                existing.Rssi = incoming.Rssi;
+                existing.RssiDisplay = incoming.RssiDisplay;
                 result = existing.Clone();
             }
             else

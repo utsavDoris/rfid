@@ -224,10 +224,12 @@ public sealed class ChainwayReader : IDisposable
                     if (string.IsNullOrWhiteSpace(tag.Epc) && string.IsNullOrWhiteSpace(tag.Tid))
                         continue;
 
-                    var rssi = int.TryParse(tag.Rssi, out var parsed) ? parsed : 0;
+                    var rssiRaw = tag.Rssi ?? string.Empty;
+                    var rssi = ParseRssi(rssiRaw);
                     TagReceived?.Invoke(new ScannedTag
                     {
                         Epc = tag.Epc ?? string.Empty,
+                        RssiRaw = rssiRaw,
                         Rssi = rssi,
                         Tid = tag.Tid ?? string.Empty,
                         User = tag.User ?? string.Empty
@@ -292,6 +294,28 @@ public sealed class ChainwayReader : IDisposable
             || name.StartsWith("R6 ", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static int ParseRssi(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return 0;
+
+        var cleaned = raw.Trim()
+            .Replace("dBm", string.Empty)
+            .Replace("DBM", string.Empty)
+            .Trim();
+
+        if (int.TryParse(cleaned, out var value))
+            return value;
+
+        foreach (var part in cleaned.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (int.TryParse(part, out value))
+                return value;
+        }
+
+        return 0;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -322,6 +346,7 @@ public sealed class ScannedDevice
 public sealed class ScannedTag
 {
     public string Epc { get; set; } = string.Empty;
+    public string RssiRaw { get; set; } = string.Empty;
     public int Rssi { get; set; }
     public string Tid { get; set; } = string.Empty;
     public string User { get; set; } = string.Empty;

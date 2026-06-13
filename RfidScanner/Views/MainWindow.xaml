@@ -223,14 +223,14 @@
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="EPC" Binding="{Binding Epc}" Width="*"/>
                                 <DataGridTextColumn Header="TID" Binding="{Binding Tid}" Width="*"/>
-                                <DataGridTextColumn Header="Type" Binding="{Binding TagType}" Width="80"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding TagType}" Width="70"/>
                                 <DataGridTemplateColumn Header="RSSI" Width="80">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <StackPanel Orientation="Horizontal">
                                                 <Ellipse Width="8" Height="8" Margin="0,0,6,0" VerticalAlignment="Center"
                                                          Fill="{Binding Rssi, Converter={StaticResource RssiToColor}}"/>
-                                                <TextBlock Text="{Binding Rssi}" VerticalAlignment="Center"/>
+                                                <TextBlock Text="{Binding RssiDisplay}" VerticalAlignment="Center"/>
                                             </StackPanel>
                                         </DataTemplate>
                                     </DataGridTemplateColumn.CellTemplate>
@@ -277,8 +277,8 @@
                             <DataGrid.Columns>
                                 <DataGridTextColumn Header="EPC" Binding="{Binding Epc}" Width="*"/>
                                 <DataGridTextColumn Header="TID" Binding="{Binding Tid}" Width="*"/>
-                                <DataGridTextColumn Header="Type" Binding="{Binding TagType}" Width="80"/>
-                                <DataGridTextColumn Header="RSSI" Binding="{Binding Rssi}" Width="60"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding TagType}" Width="70"/>
+                                <DataGridTextColumn Header="RSSI" Binding="{Binding RssiDisplay}" Width="80"/>
                                 <DataGridTextColumn Header="Reads" Binding="{Binding ReadCount}" Width="60"/>
                                 <DataGridTextColumn Header="Scanned At" Binding="{Binding ScannedAt, StringFormat='yyyy-MM-dd HH:mm:ss'}" Width="150"/>
                             </DataGrid.Columns>

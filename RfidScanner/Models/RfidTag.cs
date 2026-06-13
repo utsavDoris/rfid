@@ -9,6 +9,7 @@ public class RfidTag
     public string User { get; set; } = string.Empty;
     public string TagType { get; set; } = "EPC";
     public int Rssi { get; set; }
+    public string RssiDisplay { get; set; } = "—";
     public int ReadCount { get; set; } = 1;
     public DateTime ScannedAt { get; set; } = DateTime.Now;
     public DateTime LastSeen { get; set; } = DateTime.Now;
@@ -30,6 +31,7 @@ public class RfidTag
         User = User,
         TagType = TagType,
         Rssi = Rssi,
+        RssiDisplay = RssiDisplay,
         ReadCount = ReadCount,
         ScannedAt = ScannedAt,
         LastSeen = LastSeen

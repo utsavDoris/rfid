@@ -293,13 +293,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _random.NextBytes(epc);
         _random.NextBytes(tid);
 
-        var tag = new RfidTag
-        {
-            Epc = BitConverter.ToString(epc).Replace("-", ""),
-            Tid = BitConverter.ToString(tid).Replace("-", ""),
-            TagType = "SIM",
-            Rssi = _random.Next(-90, -30)
-        };
+        var tag = RfidTagMapper.FromScanned(
+            BitConverter.ToString(epc).Replace("-", ""),
+            BitConverter.ToString(tid).Replace("-", ""),
+            string.Empty,
+            $"{_random.Next(-90, -30)}");
+        tag.TagType = "TID";
 
         _tagManager.ProcessTag(tag);
     }
