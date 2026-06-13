@@ -221,8 +221,9 @@
 
                         <DataGrid Grid.Row="1" ItemsSource="{Binding LiveTags}">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Tag ID" Binding="{Binding TagId}" Width="*"/>
-                                <DataGridTextColumn Header="Type" Binding="{Binding TagType}" Width="70"/>
+                                <DataGridTextColumn Header="EPC" Binding="{Binding Epc}" Width="*"/>
+                                <DataGridTextColumn Header="TID" Binding="{Binding Tid}" Width="*"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding TagType}" Width="80"/>
                                 <DataGridTemplateColumn Header="RSSI" Width="80">
                                     <DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
@@ -274,8 +275,9 @@
 
                         <DataGrid Grid.Row="1" ItemsSource="{Binding HistoryTags}">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Tag ID" Binding="{Binding TagId}" Width="*"/>
-                                <DataGridTextColumn Header="Type" Binding="{Binding TagType}" Width="70"/>
+                                <DataGridTextColumn Header="EPC" Binding="{Binding Epc}" Width="*"/>
+                                <DataGridTextColumn Header="TID" Binding="{Binding Tid}" Width="*"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding TagType}" Width="80"/>
                                 <DataGridTextColumn Header="RSSI" Binding="{Binding Rssi}" Width="60"/>
                                 <DataGridTextColumn Header="Reads" Binding="{Binding ReadCount}" Width="60"/>
                                 <DataGridTextColumn Header="Scanned At" Binding="{Binding ScannedAt, StringFormat='yyyy-MM-dd HH:mm:ss'}" Width="150"/>

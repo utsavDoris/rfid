@@ -37,8 +37,10 @@ public class BluetoothService : IDisposable
         _reader.ConnectionChanged += connected => ConnectionChanged?.Invoke(connected);
         _reader.TagReceived += tag => TagReceived?.Invoke(new RfidTag
         {
-            TagId = tag.Epc,
-            TagType = "EPC",
+            Epc = tag.Epc,
+            Tid = tag.Tid,
+            User = tag.User,
+            TagType = !string.IsNullOrWhiteSpace(tag.Tid) ? "EPC+TID" : "EPC",
             Rssi = tag.Rssi
         });
     }

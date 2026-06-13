@@ -275,7 +275,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             LiveTagCount = LiveTags.Count;
             TotalScanCount++;
 
-            var existing = HistoryTags.FirstOrDefault(h => h.TagId == tag.TagId);
+            var existing = HistoryTags.FirstOrDefault(h => h.UniqueKey == tag.UniqueKey);
             if (existing != null)
                 HistoryTags.Remove(existing);
 
@@ -289,15 +289,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private void GenerateSimulatedTag(object? state)
     {
         var epc = new byte[12];
+        var tid = new byte[12];
         _random.NextBytes(epc);
-        var hex = BitConverter.ToString(epc).Replace("-", "");
-        var rssi = _random.Next(-90, -30);
+        _random.NextBytes(tid);
 
         var tag = new RfidTag
         {
-            TagId = hex,
+            Epc = BitConverter.ToString(epc).Replace("-", ""),
+            Tid = BitConverter.ToString(tid).Replace("-", ""),
             TagType = "SIM",
-            Rssi = rssi
+            Rssi = _random.Next(-90, -30)
         };
 
         _tagManager.ProcessTag(tag);

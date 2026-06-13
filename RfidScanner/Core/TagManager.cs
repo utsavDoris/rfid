@@ -30,15 +30,27 @@ public class TagManager
 
     public RfidTag ProcessTag(RfidTag incoming)
     {
+        var key = incoming.UniqueKey;
+        if (string.IsNullOrWhiteSpace(key))
+            return incoming;
+
         RfidTag result;
 
         lock (_lock)
         {
-            if (_liveTags.TryGetValue(incoming.TagId, out var existing))
+            if (_liveTags.TryGetValue(key, out var existing))
             {
                 existing.ReadCount++;
                 existing.Rssi = incoming.Rssi;
                 existing.LastSeen = DateTime.Now;
+                if (!string.IsNullOrWhiteSpace(incoming.Epc))
+                    existing.Epc = incoming.Epc;
+                if (!string.IsNullOrWhiteSpace(incoming.Tid))
+                    existing.Tid = incoming.Tid;
+                if (!string.IsNullOrWhiteSpace(incoming.User))
+                    existing.User = incoming.User;
+                if (!string.IsNullOrWhiteSpace(incoming.TagType))
+                    existing.TagType = incoming.TagType;
                 result = existing.Clone();
             }
             else
@@ -48,7 +60,7 @@ public class TagManager
                 tag.LastSeen = DateTime.Now;
                 tag.ReadCount = 1;
 
-                _liveTags[tag.TagId] = tag;
+                _liveTags[key] = tag;
                 RunOnUi(() => LiveTags.Insert(0, tag));
                 result = tag.Clone();
             }
@@ -76,7 +88,7 @@ public class TagManager
         {
             toRemove = _liveTags.Values.Where(t => t.LastSeen < cutoff).ToList();
             foreach (var tag in toRemove)
-                _liveTags.Remove(tag.TagId);
+                _liveTags.Remove(tag.UniqueKey);
         }
 
         if (toRemove == null || toRemove.Count == 0)
@@ -86,7 +98,7 @@ public class TagManager
         {
             foreach (var tag in toRemove)
             {
-                var item = LiveTags.FirstOrDefault(t => t.TagId == tag.TagId);
+                var item = LiveTags.FirstOrDefault(t => t.UniqueKey == tag.UniqueKey);
                 if (item != null)
                     LiveTags.Remove(item);
             }

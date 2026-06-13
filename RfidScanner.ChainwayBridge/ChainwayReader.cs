@@ -198,6 +198,9 @@ public sealed class ChainwayReader : IDisposable
 
             StopInventoryInternal();
 
+            if (!_reader.SetEPCTIDMode())
+                throw new InvalidOperationException("SetEPCTIDMode failed — reader may not support EPC+TID mode.");
+
             if (!_reader.startInventoryTag())
                 throw new InvalidOperationException("startInventoryTag failed.");
 
@@ -208,23 +211,23 @@ public sealed class ChainwayReader : IDisposable
         });
     }
 
-    /// <summary>InventoryForm.readTag</summary>
+    /// <summary>InventoryForm_EPCTIDUSER.readTag — EPC+TID buffer read.</summary>
     private void ReadTagLoop()
     {
         while (_inventoryRunning)
         {
-            var tags = _reader.ReadTagFromBuffer();
+            var tags = _reader.ReadTagFromBuffer_EPCTIDUSER();
             if (tags != null && tags.Count > 0)
             {
                 foreach (var tag in tags)
                 {
-                    if (string.IsNullOrWhiteSpace(tag.Epc))
+                    if (string.IsNullOrWhiteSpace(tag.Epc) && string.IsNullOrWhiteSpace(tag.Tid))
                         continue;
 
                     var rssi = int.TryParse(tag.Rssi, out var parsed) ? parsed : 0;
                     TagReceived?.Invoke(new ScannedTag
                     {
-                        Epc = tag.Epc,
+                        Epc = tag.Epc ?? string.Empty,
                         Rssi = rssi,
                         Tid = tag.Tid ?? string.Empty,
                         User = tag.User ?? string.Empty
