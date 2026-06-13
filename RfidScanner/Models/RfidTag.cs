@@ -1,3 +1,5 @@
+using System;
+
 namespace RfidScanner.Models;
 
 public class RfidTag
