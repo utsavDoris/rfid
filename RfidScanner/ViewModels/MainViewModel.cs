@@ -19,7 +19,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly ScanDatabase _database = new();
     private readonly Random _random = new();
     private Timer? _simulationTimer;
-    private CancellationTokenSource? _scanCts;
     private bool _disposed;
 
     [ObservableProperty]
@@ -54,6 +53,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         _bluetooth.TagReceived += tag => _tagManager.ProcessTag(tag);
         _bluetooth.StatusChanged += msg => RunOnUi(() => StatusMessage = msg);
+        _bluetooth.DeviceDiscovered += OnDeviceDiscovered;
+        _bluetooth.DeviceRemoved += OnDeviceRemoved;
+        _bluetooth.ScanCompleted += OnScanCompleted;
         _bluetooth.ConnectionChanged += connected => RunOnUi(() =>
         {
             IsConnected = connected;
@@ -68,37 +70,61 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task ScanDevicesAsync()
     {
-        if (IsScanning) return;
+        if (IsScanning)
+        {
+            await _bluetooth.StopScanAsync();
+            return;
+        }
 
         try
         {
             IsScanning = true;
             StatusMessage = "Scanning for Bluetooth devices...";
             Devices.Clear();
-
-            _scanCts?.Cancel();
-            _scanCts = new CancellationTokenSource();
-            var devices = await _bluetooth.ScanDevicesAsync(_scanCts.Token);
-
-            foreach (var device in devices)
-                Devices.Add(device);
-
-            StatusMessage = devices.Count > 0
-                ? $"Found {devices.Count} device(s). Select one and connect."
-                : "No devices found. Pair your reader in Windows Bluetooth settings.";
-        }
-        catch (OperationCanceledException)
-        {
-            StatusMessage = "Scan cancelled.";
+            await _bluetooth.BeginScanAsync();
         }
         catch (Exception ex)
         {
+            IsScanning = false;
             StatusMessage = $"Scan failed: {ex.Message}";
         }
-        finally
+    }
+
+    private void OnDeviceDiscovered(BluetoothDeviceInfo device)
+    {
+        RunOnUi(() =>
+        {
+            if (Devices.All(d => d.Mac != device.Mac))
+                Devices.Add(device);
+        });
+    }
+
+    private void OnDeviceRemoved(string deviceId)
+    {
+        RunOnUi(() =>
+        {
+            var existing = Devices.FirstOrDefault(d => d.Address == deviceId);
+            if (existing != null)
+                Devices.Remove(existing);
+        });
+    }
+
+    private void OnScanCompleted()
+    {
+        RunOnUi(() =>
         {
             IsScanning = false;
-        }
+            if (Devices.Count > 0)
+            {
+                StatusMessage = $"Found {Devices.Count} device(s). Select one and connect.";
+                if (SelectedDevice == null)
+                    SelectedDevice = Devices.FirstOrDefault(d => d.IsChainway) ?? Devices.FirstOrDefault();
+            }
+            else
+            {
+                StatusMessage = "No devices found. Power on R6 and ensure Bluetooth is enabled.";
+            }
+        });
     }
 
     [RelayCommand(CanExecute = nameof(CanConnect))]
@@ -166,7 +192,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool CanStartInventory() => IsConnected && !IsInventoryRunning && !IsSimulating;
     private bool CanStopInventory() => IsConnected && IsInventoryRunning;
 
-    private bool CanConnect() => SelectedDevice != null && !IsConnected && !IsSimulating;
+    private bool CanConnect() => SelectedDevice != null && !IsConnected && !IsScanning && !IsSimulating;
 
     [RelayCommand(CanExecute = nameof(CanDisconnect))]
     private async Task DisconnectAsync()
@@ -235,7 +261,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         StatusMessage = "Scan history cleared.";
     }
 
-    partial void OnSelectedDeviceChanged(BluetoothDeviceInfo? value) => ConnectCommand.NotifyCanExecuteChanged();
+    partial void OnSelectedDeviceChanged(BluetoothDeviceInfo? value) => RefreshCommands();
+    partial void OnIsScanningChanged(bool value) => RefreshCommands();
     partial void OnIsConnectedChanged(bool value) => RefreshCommands();
     partial void OnIsSimulatingChanged(bool value) => RefreshCommands();
     partial void OnIsInventoryRunningChanged(bool value) => RefreshCommands();
@@ -307,8 +334,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _disposed = true;
 
         _simulationTimer?.Dispose();
-        _scanCts?.Cancel();
-        _scanCts?.Dispose();
         _tagManager.Stop();
         _bluetooth.Dispose();
         _database.Dispose();

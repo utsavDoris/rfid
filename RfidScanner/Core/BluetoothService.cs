@@ -1,33 +1,39 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Threading;
 using RfidScanner.ChainwayBridge;
 using RfidScanner.Models;
 
 namespace RfidScanner.Core;
 
 /// <summary>
-/// WPF-facing Bluetooth service backed by Chainway's official BLEDeviceAPI (win_ble_V1.2).
+/// WPF service over Chainway win_ble_V1.2 BLEDeviceAPI — scan/connect run on UI thread like MainForm.cs.
 /// </summary>
 public class BluetoothService : IDisposable
 {
-    private readonly ChainwayReader _reader = new();
+    private readonly ChainwayReader _reader;
     private bool _disposed;
 
-    public event Action<byte[]>? DataReceived;
+    public event Action<BluetoothDeviceInfo>? DeviceDiscovered;
+    public event Action<string>? DeviceRemoved;
+    public event Action? ScanCompleted;
     public event Action<RfidTag>? TagReceived;
     public event Action<string>? StatusChanged;
     public event Action<bool>? ConnectionChanged;
 
     public bool IsConnected => _reader.IsConnected;
     public bool IsInventoryRunning => _reader.IsInventoryRunning;
+    public bool IsScanning => _reader.IsScanning;
     public bool IsChainwayDevice => true;
 
     public BluetoothService()
     {
+        _reader = new ChainwayReader(RunOnUiThread);
         _reader.StatusChanged += msg => StatusChanged?.Invoke(msg);
+        _reader.DeviceDiscovered += OnDeviceDiscovered;
+        _reader.DeviceRemoved += id => DeviceRemoved?.Invoke(id);
+        _reader.ScanCompleted += () => ScanCompleted?.Invoke();
         _reader.ConnectionChanged += connected => ConnectionChanged?.Invoke(connected);
         _reader.TagReceived += tag => TagReceived?.Invoke(new RfidTag
         {
@@ -37,57 +43,73 @@ public class BluetoothService : IDisposable
         });
     }
 
-    public Task<IReadOnlyList<BluetoothDeviceInfo>> ScanDevicesAsync(CancellationToken ct = default)
+    private static void RunOnUiThread(Action action)
     {
-        return Task.Run(() =>
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
         {
-            var devices = _reader.Scan(20);
-            ct.ThrowIfCancellationRequested();
+            action();
+            return;
+        }
 
-            return (IReadOnlyList<BluetoothDeviceInfo>)devices.Select(d => new BluetoothDeviceInfo
-            {
-                Name = d.Name,
-                Address = d.DeviceId,
-                Mac = d.Mac,
-                IsBle = true,
-                IsChainway = d.IsChainway
-            }).ToList();
-        }, ct);
+        dispatcher.Invoke(action, DispatcherPriority.Normal);
     }
 
-    public Task ConnectAsync(BluetoothDeviceInfo device, CancellationToken ct = default)
+    private void OnDeviceDiscovered(ScannedDevice device)
     {
-        return Task.Run(() =>
+        DeviceDiscovered?.Invoke(new BluetoothDeviceInfo
         {
-            ct.ThrowIfCancellationRequested();
-            StatusChanged?.Invoke($"Connecting to {device.DeviceLabel}...");
-            _reader.Connect(device.Address, 30);
-            ct.ThrowIfCancellationRequested();
-            StatusChanged?.Invoke($"Connected to {device.DeviceLabel}.");
-        }, ct);
+            Name = device.Name,
+            Address = device.DeviceId,
+            Mac = device.Mac,
+            IsBle = true,
+            IsChainway = device.IsChainway
+        });
+    }
+
+    public Task BeginScanAsync()
+    {
+        _reader.BeginScan();
+        return Task.CompletedTask;
+    }
+
+    public Task StopScanAsync()
+    {
+        _reader.StopScan();
+        return Task.CompletedTask;
+    }
+
+    public async Task ConnectAsync(BluetoothDeviceInfo device)
+    {
+        StatusChanged?.Invoke($"Connecting to {device.DeviceLabel}...");
+        await _reader.ConnectAsync(device.Address).ConfigureAwait(true);
+        StatusChanged?.Invoke($"Connected to {device.DeviceLabel}.");
     }
 
     public Task StartInventoryAsync()
     {
-        return Task.Run(() =>
+        RunOnUiThread(() =>
         {
             _reader.StartInventory();
             StatusChanged?.Invoke("R6 inventory started — present tags near the reader.");
         });
+        return Task.CompletedTask;
     }
 
     public Task StopInventoryAsync()
     {
-        return Task.Run(_reader.StopInventory);
+        RunOnUiThread(_reader.StopInventory);
+        return Task.CompletedTask;
     }
 
     public Task DisconnectAsync()
     {
-        return Task.Run(() =>
+        RunOnUiThread(() =>
         {
             _reader.Disconnect();
             StatusChanged?.Invoke("Disconnected.");
         });
+        return Task.CompletedTask;
     }
 
     public void Dispose()

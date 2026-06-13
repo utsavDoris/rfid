@@ -2,61 +2,97 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using BLEDeviceAPI;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Enumeration;
 
 namespace RfidScanner.ChainwayBridge;
 
+/// <summary>
+/// Mirrors win_ble_V1.2 sound code MainForm.cs + InventoryForm.cs BLE flows.
+/// WinRT DeviceWatcher must run on a UI thread with a message pump (official WinForms UI thread).
+/// </summary>
 public sealed class ChainwayReader : IDisposable
 {
     private readonly RFIDWithUHFBEL _reader = RFIDWithUHFBEL.GetInstance();
+    private readonly Action<Action> _invoke;
     private readonly object _scanLock = new();
     private readonly List<ScannedDevice> _scanResults = new();
 
-    private ManualResetEventSlim? _scanDone;
-    private ManualResetEventSlim? _connectDone;
+    private TaskCompletionSource<bool>? _connectTcs;
     private volatile bool _inventoryRunning;
+    private volatile bool _scanning;
     private Thread? _readThread;
     private bool _disposed;
 
     public event Action<ScannedDevice>? DeviceDiscovered;
+    public event Action<string>? DeviceRemoved;
+    public event Action? ScanCompleted;
     public event Action<bool>? ConnectionChanged;
     public event Action<ScannedTag>? TagReceived;
     public event Action<string>? StatusChanged;
 
     public bool IsConnected { get; private set; }
     public bool IsInventoryRunning { get; private set; }
+    public bool IsScanning => _scanning;
 
-    public IReadOnlyList<ScannedDevice> Scan(int timeoutSeconds = 20)
+    public ChainwayReader(Action<Action>? invokeOnUi = null)
     {
-        lock (_scanLock)
-        {
-            _scanResults.Clear();
-            _scanDone = new ManualResetEventSlim(false);
-
-            StatusChanged?.Invoke("Scanning BLE devices...");
-            _reader.StartBleDeviceWatcher(OnScanDevice);
-
-            if (!_scanDone.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
-            {
-                _reader.StopBleDeviceWatcher();
-                throw new TimeoutException("BLE scan timed out.");
-            }
-
-            return _scanResults
-                .OrderByDescending(d => d.IsChainway)
-                .ThenBy(d => d.Name)
-                .ToList();
-        }
+        _invoke = invokeOnUi ?? (action => action());
     }
 
+    /// <summary>MainForm.btnSearch_Click — start BLE watcher on UI thread.</summary>
+    public void BeginScan()
+    {
+        _invoke(() =>
+        {
+            lock (_scanLock)
+            {
+                if (_scanning)
+                    return;
+
+                _scanResults.Clear();
+                _scanning = true;
+                StatusChanged?.Invoke("Scanning BLE devices...");
+                _reader.StartBleDeviceWatcher(OnScanDevice);
+            }
+        });
+    }
+
+    /// <summary>MainForm.btnSearch_Click (stop) — stop BLE watcher.</summary>
+    public void StopScan()
+    {
+        _invoke(() =>
+        {
+            lock (_scanLock)
+            {
+                if (!_scanning)
+                    return;
+
+                _reader.StopBleDeviceWatcher();
+                FinishScan($"Scan stopped. Found {_scanResults.Count} device(s).");
+            }
+        });
+    }
+
+    private void FinishScan(string message)
+    {
+        _scanning = false;
+        StatusChanged?.Invoke(message);
+        ScanCompleted?.Invoke();
+    }
+
+    /// <summary>MainForm.ScanDeviceEventHandler</summary>
     private void OnScanDevice(DeviceInformation? device, DeviceWatcherStatus status, string? removeId)
     {
         if (device != null)
         {
             var name = string.IsNullOrWhiteSpace(device.Name) ? "Unknown" : device.Name;
-            var mac = device.Id.Length >= 17 ? device.Id.Substring(device.Id.Length - 17) : device.Id;
+            var mac = device.Id.Length >= 17
+                ? device.Id.Substring(device.Id.Length - 17, 17)
+                : device.Id;
+
             var scanned = new ScannedDevice
             {
                 Name = name,
@@ -67,34 +103,62 @@ public sealed class ChainwayReader : IDisposable
 
             lock (_scanLock)
             {
-                if (_scanResults.All(d => d.DeviceId != scanned.DeviceId))
+                if (_scanResults.All(d => d.Mac != scanned.Mac))
                 {
                     _scanResults.Add(scanned);
                     DeviceDiscovered?.Invoke(scanned);
                 }
             }
         }
-
-        if (status == DeviceWatcherStatus.EnumerationCompleted || status == DeviceWatcherStatus.Stopped)
+        else if (!string.IsNullOrEmpty(removeId))
         {
-            _reader.StopBleDeviceWatcher();
-            _scanDone?.Set();
+            lock (_scanLock)
+            {
+                var removed = _scanResults.FirstOrDefault(d => d.DeviceId == removeId);
+                if (removed != null)
+                {
+                    _scanResults.Remove(removed);
+                    DeviceRemoved?.Invoke(removeId);
+                }
+            }
+        }
+
+        if (status == DeviceWatcherStatus.Stopped)
+        {
+            System.Diagnostics.Debug.WriteLine("BLE scan stopped.");
+        }
+        else if (status == DeviceWatcherStatus.EnumerationCompleted)
+        {
+            System.Diagnostics.Debug.WriteLine("BLE scan completed.");
+            _invoke(() =>
+            {
+                lock (_scanLock)
+                {
+                    if (!_scanning)
+                        return;
+
+                    _reader.StopBleDeviceWatcher();
+                    FinishScan($"Scan complete. Found {_scanResults.Count} device(s).");
+                }
+            });
         }
     }
 
-    public void Connect(string deviceId, int timeoutSeconds = 30)
+    /// <summary>MainForm.btnConn_Click — Connect using full Windows BLE device Id (SubItems[2]).</summary>
+    public Task ConnectAsync(string deviceId)
     {
         if (string.IsNullOrWhiteSpace(deviceId))
             throw new ArgumentException("Device ID is required.", nameof(deviceId));
 
-        _connectDone = new ManualResetEventSlim(false);
-        _reader.Connect(deviceId, OnConnectionStatusChanged);
+        var tcs = new TaskCompletionSource<bool>();
 
-        if (!_connectDone.Wait(TimeSpan.FromSeconds(timeoutSeconds)))
-            throw new TimeoutException("Connection timed out.");
+        _invoke(() =>
+        {
+            _connectTcs = tcs;
+            _reader.Connect(deviceId, OnConnectionStatusChanged);
+        });
 
-        if (!IsConnected)
-            throw new InvalidOperationException("Failed to connect to reader.");
+        return tcs.Task;
     }
 
     private void OnConnectionStatusChanged(BluetoothConnectionStatus status, BluetoothLEDevice? device)
@@ -103,7 +167,8 @@ public sealed class ChainwayReader : IDisposable
         {
             IsConnected = true;
             ConnectionChanged?.Invoke(true);
-            _connectDone?.Set();
+            _connectTcs?.TrySetResult(true);
+            _connectTcs = null;
         }
         else if (status == BluetoothConnectionStatus.Disconnected)
         {
@@ -115,26 +180,35 @@ public sealed class ChainwayReader : IDisposable
             if (wasConnected)
                 ConnectionChanged?.Invoke(false);
 
-            _connectDone?.Set();
+            if (_connectTcs != null)
+            {
+                _connectTcs.TrySetException(new InvalidOperationException("Failed to connect to reader."));
+                _connectTcs = null;
+            }
         }
     }
 
+    /// <summary>InventoryForm.btnInventory_Click + readTag background thread.</summary>
     public void StartInventory()
     {
-        if (!IsConnected)
-            throw new InvalidOperationException("Not connected.");
+        _invoke(() =>
+        {
+            if (!IsConnected)
+                throw new InvalidOperationException("Not connected.");
 
-        StopInventoryInternal();
+            StopInventoryInternal();
 
-        if (!_reader.startInventoryTag())
-            throw new InvalidOperationException("startInventoryTag failed.");
+            if (!_reader.startInventoryTag())
+                throw new InvalidOperationException("startInventoryTag failed.");
 
-        _inventoryRunning = true;
-        IsInventoryRunning = true;
-        _readThread = new Thread(ReadTagLoop) { IsBackground = true, Name = "ChainwayTagReader" };
-        _readThread.Start();
+            _inventoryRunning = true;
+            IsInventoryRunning = true;
+            _readThread = new Thread(ReadTagLoop) { IsBackground = true, Name = "ChainwayTagReader" };
+            _readThread.Start();
+        });
     }
 
+    /// <summary>InventoryForm.readTag</summary>
     private void ReadTagLoop()
     {
         while (_inventoryRunning)
@@ -164,9 +238,10 @@ public sealed class ChainwayReader : IDisposable
         }
     }
 
+    /// <summary>InventoryForm.btnStop_Click</summary>
     public void StopInventory()
     {
-        StopInventoryInternal();
+        _invoke(StopInventoryInternal);
     }
 
     private void StopInventoryInternal()
@@ -182,18 +257,25 @@ public sealed class ChainwayReader : IDisposable
                 Thread.Sleep(100);
                 _reader.stopInventoryTag();
             }
-            catch { /* ignore */ }
+            catch
+            {
+                // ignore
+            }
         }
 
         IsInventoryRunning = false;
     }
 
+    /// <summary>MainForm.btnDisConn_Click</summary>
     public void Disconnect()
     {
-        StopInventoryInternal();
-        try { _reader.DisConnect(); } catch { /* ignore */ }
-        IsConnected = false;
-        ConnectionChanged?.Invoke(false);
+        _invoke(() =>
+        {
+            StopInventoryInternal();
+            try { _reader.DisConnect(); } catch { /* ignore */ }
+            IsConnected = false;
+            ConnectionChanged?.Invoke(false);
+        });
     }
 
     public static bool IsChainwayName(string? name)
@@ -201,20 +283,28 @@ public sealed class ChainwayReader : IDisposable
         if (string.IsNullOrWhiteSpace(name))
             return false;
 
-        var deviceName = name;
-        return deviceName.IndexOf("Nordic_UART", StringComparison.OrdinalIgnoreCase) >= 0
-            || deviceName.IndexOf("Chainway", StringComparison.OrdinalIgnoreCase) >= 0
-            || deviceName.Equals("R6", StringComparison.OrdinalIgnoreCase)
-            || deviceName.StartsWith("R6 ", StringComparison.OrdinalIgnoreCase);
+        return name.IndexOf("Nordic_UART", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.IndexOf("Chainway", StringComparison.OrdinalIgnoreCase) >= 0
+            || name.Equals("R6", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("R6 ", StringComparison.OrdinalIgnoreCase);
     }
 
     public void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
+
+        try
+        {
+            if (_scanning)
+                StopScan();
+        }
+        catch
+        {
+            // ignore
+        }
+
         Disconnect();
-        _scanDone?.Dispose();
-        _connectDone?.Dispose();
     }
 }
 
