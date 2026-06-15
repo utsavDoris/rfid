@@ -45,7 +45,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private int _transmitPower = 30;
 
     [ObservableProperty]
-    private bool _isSoundMuted;
+    private bool _isSoundMuted = true;
 
     [ObservableProperty]
     private int _uniqueTagCount;
@@ -396,7 +396,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private async Task DisconnectAsync()
     {
         await DisconnectReaderAsync();
-        StatusMessage = "Disconnected.";
+        StatusMessage = "Disconnected from app.";
         RefreshCommands();
     }
 

@@ -20,6 +20,8 @@ public sealed class ChainwayReader : IDisposable
     private RFIDWithUHFBEL? _readerInstance;
     private RFIDWithUHFBEL Reader => _readerInstance ?? (_readerInstance = RFIDWithUHFBEL.GetInstance());
     private readonly Action<Action> _invoke;
+    private readonly WinFormsMessageHost _messageHost;
+    private readonly bool _ownMessageHost;
     private readonly object _scanLock = new();
     private readonly List<ScannedDevice> _scanResults = new();
 
@@ -50,11 +52,6 @@ public sealed class ChainwayReader : IDisposable
     public event Action<string>? StatusChanged;
     public event Action? HardwareTriggerPressed;
 
-    private readonly object _pumpLock = new();
-    private Thread? _pumpThread;
-    private Form? _triggerForm;
-    private ManualResetEventSlim? _pumpReady;
-    private volatile bool _pumpRunning;
     private DateTime _lastTriggerUtc = DateTime.MinValue;
     private const int TriggerDebounceMs = 400;
 
@@ -65,9 +62,13 @@ public sealed class ChainwayReader : IDisposable
     private volatile bool _isConnected;
     private volatile bool _isInventoryRunning;
 
-    public ChainwayReader(Action<Action>? invokeOnUi = null)
+    /// <summary>Uses WinForms STA message pump (Chainway MainForm) — not WPF dispatcher.</summary>
+    public ChainwayReader(WinFormsMessageHost? messageHost = null)
     {
-        _invoke = invokeOnUi ?? (action => action());
+        _ownMessageHost = messageHost == null;
+        _messageHost = messageHost ?? new WinFormsMessageHost();
+        _messageHost.Start();
+        _invoke = _messageHost.Invoke;
     }
 
     /// <summary>MainForm.btnSearch_Click — start BLE watcher on UI thread.</summary>
@@ -191,6 +192,10 @@ public sealed class ChainwayReader : IDisposable
     {
         if (string.IsNullOrWhiteSpace(deviceId))
             throw new ArgumentException("Device ID is required.", nameof(deviceId));
+
+        if (!IsBleScanDeviceId(deviceId))
+            throw new InvalidOperationException(
+                "Use Scan Devices and select R6 from the list. Do not connect via Windows paired Bluetooth.");
 
         var tcs = new TaskCompletionSource<bool>();
 
@@ -542,6 +547,7 @@ public sealed class ChainwayReader : IDisposable
             _isConnected = false;
             _epcTidModeConfigured = false;
             _connectedDeviceId = null;
+            StatusChanged?.Invoke("Disconnected from app.");
             ConnectionChanged?.Invoke(false);
         });
     }
@@ -572,16 +578,19 @@ public sealed class ChainwayReader : IDisposable
         if (_disposed)
             return;
 
-        EnsureTriggerPump();
-        RunOnPumpThread(() =>
+        _invoke(() =>
         {
-            if (_disposed || _triggerForm == null || _triggerForm.IsDisposed)
+            if (_disposed)
+                return;
+
+            var form = _messageHost.Form;
+            if (form == null || form.IsDisposed)
                 return;
 
             try
             {
-                _triggerForm.Select();
-                Reader.SetKeyDownCallBack(OnHardwareKeyDown, _triggerForm);
+                form.Select();
+                Reader.SetKeyDownCallBack(OnHardwareKeyDown, form);
             }
             catch (Exception ex)
             {
@@ -592,23 +601,10 @@ public sealed class ChainwayReader : IDisposable
 
     public void DisableHardwareTrigger()
     {
-        try { Reader.SetKeyDownCallBack(null, null); } catch { /* ignore */ }
-
-        var form = _triggerForm;
-        if (form == null || form.IsDisposed || !_pumpRunning)
-            return;
-
-        try
+        _invoke(() =>
         {
-            form.Invoke((Action)(() =>
-            {
-                try { Reader.SetKeyDownCallBack(null, null); } catch { /* ignore */ }
-            }));
-        }
-        catch
-        {
-            // Pump is shutting down.
-        }
+            try { Reader.SetKeyDownCallBack(null, null); } catch { /* ignore */ }
+        });
     }
 
     private void OnHardwareKeyDown(int keyCode)
@@ -631,118 +627,6 @@ public sealed class ChainwayReader : IDisposable
         }
     }
 
-    private void EnsureTriggerPump()
-    {
-        lock (_pumpLock)
-        {
-            if (_pumpRunning && _triggerForm != null && !_triggerForm.IsDisposed)
-                return;
-
-            _pumpReady = new ManualResetEventSlim(false);
-            _pumpThread = new Thread(PumpThreadProc)
-            {
-                IsBackground = true,
-                Name = "ChainwayTriggerPump"
-            };
-            _pumpThread.SetApartmentState(ApartmentState.STA);
-            _pumpThread.Start();
-
-            if (!_pumpReady.Wait(TimeSpan.FromSeconds(5)))
-                throw new InvalidOperationException("WinForms trigger message pump failed to start.");
-        }
-    }
-
-    private void PumpThreadProc()
-    {
-        try
-        {
-            Application.EnableVisualStyles();
-            var form = new Form
-            {
-                ShowInTaskbar = false,
-                FormBorderStyle = FormBorderStyle.None,
-                StartPosition = FormStartPosition.Manual,
-                Location = new Point(-2000, -2000),
-                Size = new Size(1, 1),
-                Opacity = 0
-            };
-
-            form.Load += (_, _) =>
-            {
-                _pumpRunning = true;
-                _pumpReady?.Set();
-            };
-
-            _triggerForm = form;
-            Application.Run(form);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Trigger pump thread failed: {ex.Message}");
-            _pumpReady?.Set();
-        }
-        finally
-        {
-            _pumpRunning = false;
-            _triggerForm = null;
-        }
-    }
-
-    private void RunOnPumpThread(Action action)
-    {
-        if (_disposed)
-            return;
-
-        if (!_pumpRunning || _triggerForm == null || _triggerForm.IsDisposed)
-            return;
-
-        var form = _triggerForm;
-        try
-        {
-            if (form.InvokeRequired)
-                form.Invoke(action);
-            else
-                action();
-        }
-        catch (ObjectDisposedException)
-        {
-            // Pump is shutting down.
-        }
-    }
-
-    private void StopTriggerPump()
-    {
-        var form = _triggerForm;
-        if (form == null || form.IsDisposed)
-            return;
-
-        try
-        {
-            if (form.InvokeRequired)
-                form.Invoke((Action)(() => Application.ExitThread()));
-            else
-                Application.ExitThread();
-        }
-        catch
-        {
-            // ignore
-        }
-
-        try
-        {
-            _pumpThread?.Join(2000);
-        }
-        catch
-        {
-            // ignore
-        }
-
-        _pumpThread = null;
-        _pumpReady?.Dispose();
-        _pumpReady = null;
-        _pumpRunning = false;
-    }
-
     /// <summary>SettingsForm SetBeep — mute/unmute R6 reader beep on tag read.</summary>
     public bool SetBeep(bool enabled)
     {
@@ -754,6 +638,10 @@ public sealed class ChainwayReader : IDisposable
         });
         return success;
     }
+
+    public static bool IsBleScanDeviceId(string deviceId)
+        => !string.IsNullOrWhiteSpace(deviceId)
+           && deviceId.IndexOf("BluetoothLE#", StringComparison.OrdinalIgnoreCase) >= 0;
 
     public static bool IsChainwayName(string? name)
     {
@@ -812,7 +700,9 @@ public sealed class ChainwayReader : IDisposable
 
         CancelReconnectTimer();
         StopKeepAlive();
-        StopTriggerPump();
+
+        if (_ownMessageHost)
+            _messageHost.Dispose();
     }
 
     private void StopInventoryForShutdown()

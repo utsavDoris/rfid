@@ -12,6 +12,7 @@ namespace RfidScanner.Core;
 /// </summary>
 public class BluetoothService : IDisposable
 {
+    private readonly WinFormsMessageHost _bleHost = new();
     private readonly ChainwayReader _reader;
     private bool _disposed;
 
@@ -30,7 +31,8 @@ public class BluetoothService : IDisposable
 
     public BluetoothService()
     {
-        _reader = new ChainwayReader(RunOnUiThread);
+        _bleHost.Start();
+        _reader = new ChainwayReader(_bleHost);
         _reader.StatusChanged += msg => StatusChanged?.Invoke(msg);
         _reader.DeviceDiscovered += OnDeviceDiscovered;
         _reader.DeviceRemoved += id => DeviceRemoved?.Invoke(id);
@@ -94,28 +96,24 @@ public class BluetoothService : IDisposable
 
     public Task StartInventoryAsync()
     {
-        RunOnUiThread(() =>
-        {
-            _reader.StartInventory();
-            StatusChanged?.Invoke("R6 inventory started — present tags near the reader.");
-        });
+        _reader.StartInventory();
+        StatusChanged?.Invoke("R6 inventory started — present tags near the reader.");
         return Task.CompletedTask;
     }
 
     public Task StopInventoryAsync()
     {
-        RunOnUiThread(_reader.StopInventory);
+        _reader.StopInventory();
         return Task.CompletedTask;
     }
 
-    public Task DisconnectAsync()
+    public async Task DisconnectAsync()
     {
-        RunOnUiThread(() =>
+        await Task.Run(() =>
         {
             _reader.Disconnect();
-            StatusChanged?.Invoke("Disconnected.");
-        });
-        return Task.CompletedTask;
+        }).ConfigureAwait(true);
+        StatusChanged?.Invoke("Disconnected from app (no Windows Bluetooth).");
     }
 
     public int GetPower() => _reader.GetPower();
@@ -129,6 +127,7 @@ public class BluetoothService : IDisposable
         if (_disposed) return;
         _disposed = true;
         _reader.Dispose();
+        _bleHost.Dispose();
     }
 
     public void ShutdownReader()
@@ -136,12 +135,9 @@ public class BluetoothService : IDisposable
         if (_disposed)
             return;
 
-        RunOnUiThread(() =>
-        {
-            if (_reader.IsInventoryRunning)
-                _reader.StopInventory();
-            if (_reader.IsConnected)
-                _reader.Disconnect();
-        });
+        if (_reader.IsInventoryRunning)
+            _reader.StopInventory();
+        if (_reader.IsConnected)
+            _reader.Disconnect();
     }
 }
