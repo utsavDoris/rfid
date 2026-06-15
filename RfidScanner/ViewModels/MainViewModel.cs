@@ -33,6 +33,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool _isScanning;
 
     [ObservableProperty]
+    private bool _isConnecting;
+
+    [ObservableProperty]
     private bool _isInventoryRunning;
 
     [ObservableProperty]
@@ -68,7 +71,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public bool ShowTagPlaceholder => !IsInventoryRunning && LiveTags.Count == 0;
     public bool ShowScanProgress => IsInventoryRunning && LiveTags.Count == 0;
+    public bool ShowDevicePlaceholder => !IsScanning && Devices.Count == 0;
+    public bool ShowDeviceScanning => IsScanning && Devices.Count == 0;
     public string ConnectionStatusText => IsInventoryRunning ? "Scanning" : IsConnected ? "Connected" : "Disconnected";
+    public string ConnectedDeviceText => SelectedDevice != null ? $"Connected: {SelectedDevice.DeviceLabel}" : "Connected";
 
     public MainViewModel()
     {
@@ -182,6 +188,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             IsScanning = true;
             StatusMessage = "Scanning for Bluetooth devices...";
             Devices.Clear();
+            NotifyDevicePanelState();
             await _bluetooth.BeginScanAsync();
         }
         catch (Exception ex)
@@ -195,8 +202,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         RunOnUi(() =>
         {
-            if (Devices.All(d => d.Mac != device.Mac))
+            if (Devices.Any(d => d.Mac == device.Mac))
+                return;
+
+            if (device.IsChainway)
+                Devices.Insert(0, device);
+            else
                 Devices.Add(device);
+
+            NotifyDevicePanelState();
         });
     }
 
@@ -210,11 +224,13 @@ public partial class MainViewModel : ObservableObject, IDisposable
         RunOnUi(() =>
         {
             IsScanning = false;
+            NotifyDevicePanelState();
             if (Devices.Count > 0)
             {
-                StatusMessage = $"Found {Devices.Count} device(s). Select one and connect.";
-                if (SelectedDevice == null)
-                    SelectedDevice = Devices.FirstOrDefault(d => d.IsChainway) ?? Devices.FirstOrDefault();
+                var chainwayCount = Devices.Count(d => d.IsChainway);
+                StatusMessage = chainwayCount > 0
+                    ? $"Found {Devices.Count} device(s). Tap your R6 reader to connect."
+                    : $"Found {Devices.Count} device(s). Tap a device to connect.";
             }
             else
             {
@@ -223,10 +239,36 @@ public partial class MainViewModel : ObservableObject, IDisposable
         });
     }
 
-    [RelayCommand(CanExecute = nameof(CanConnect))]
+    [RelayCommand(CanExecute = nameof(CanConnectToDevice))]
+    private async Task ConnectToDeviceAsync(BluetoothDeviceInfo? device)
+    {
+        if (device == null || IsConnecting || IsConnected)
+            return;
+
+        SelectedDevice = device;
+        await ConnectReaderAsync(device);
+    }
+
+    private bool CanConnectToDevice(BluetoothDeviceInfo? device) =>
+        device != null && !IsConnected && !IsConnecting;
+
+    [RelayCommand(CanExecute = nameof(CanConnectLegacy))]
     private async Task ConnectAsync()
     {
-        if (SelectedDevice == null) return;
+        if (SelectedDevice != null)
+            await ConnectReaderAsync(SelectedDevice);
+    }
+
+    private bool CanConnectLegacy() =>
+        SelectedDevice != null && !IsConnected && !IsConnecting;
+
+    private async Task ConnectReaderAsync(BluetoothDeviceInfo device)
+    {
+        if (IsConnecting)
+            return;
+
+        IsConnecting = true;
+        RefreshCommands();
 
         try
         {
@@ -236,11 +278,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
             {
                 await bluetooth.StopScanAsync();
                 IsScanning = false;
+                NotifyDevicePanelState();
                 await Task.Delay(500).ConfigureAwait(true);
             }
 
-            StatusMessage = $"Connecting to {SelectedDevice.DeviceLabel} (direct BLE — do not pair in Windows)...";
-            await bluetooth.ConnectAsync(SelectedDevice);
+            StatusMessage = $"Connecting to {device.DeviceLabel} (direct BLE — no Windows pairing)...";
+            await bluetooth.ConnectAsync(device);
 
             if (!bluetooth.IsConnected)
                 return;
@@ -254,7 +297,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             if (!bluetooth.IsConnected)
             {
-                StatusMessage = "Reader disconnected during connect. Try again.";
+                StatusMessage = "Reader disconnected during connect. Tap the device to try again.";
                 return;
             }
 
@@ -264,6 +307,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             StatusMessage = $"Connection failed: {ex.Message}";
             IsConnected = false;
+        }
+        finally
+        {
+            IsConnecting = false;
+            RefreshCommands();
         }
     }
 
@@ -337,8 +385,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private bool CanStartInventory() => IsConnected && !IsInventoryRunning;
     private bool CanStopInventory() => IsConnected && IsInventoryRunning;
-
-    private bool CanConnect() => SelectedDevice != null && !IsConnected && !IsScanning;
 
     [RelayCommand(CanExecute = nameof(CanSetPower))]
     private void ApplyPower()
@@ -454,12 +500,23 @@ public partial class MainViewModel : ObservableObject, IDisposable
         return value;
     }
 
-    partial void OnSelectedDeviceChanged(BluetoothDeviceInfo? value) => RefreshCommands();
-    partial void OnIsScanningChanged(bool value) => RefreshCommands();
+    partial void OnSelectedDeviceChanged(BluetoothDeviceInfo? value)
+    {
+        NotifyDevicePanelState();
+        RefreshCommands();
+    }
+    partial void OnIsScanningChanged(bool value)
+    {
+        NotifyDevicePanelState();
+        RefreshCommands();
+    }
+
+    partial void OnIsConnectingChanged(bool value) => RefreshCommands();
     partial void OnIsConnectedChanged(bool value)
     {
         RefreshCommands();
         NotifyTagPanelState();
+        NotifyDevicePanelState();
     }
 
     partial void OnIsInventoryRunningChanged(bool value)
@@ -507,8 +564,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
         RefreshLiveStats();
     }
 
+    private void NotifyDevicePanelState()
+    {
+        OnPropertyChanged(nameof(ShowDevicePlaceholder));
+        OnPropertyChanged(nameof(ShowDeviceScanning));
+        OnPropertyChanged(nameof(ConnectedDeviceText));
+    }
+
     private void RefreshCommands()
     {
+        ConnectToDeviceCommand.NotifyCanExecuteChanged();
         ConnectCommand.NotifyCanExecuteChanged();
         DisconnectCommand.NotifyCanExecuteChanged();
         StartInventoryCommand.NotifyCanExecuteChanged();

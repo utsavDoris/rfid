@@ -33,12 +33,12 @@ public class BluetoothService : IDisposable
     {
         _bleHost.Start();
         _reader = new ChainwayReader(_bleHost);
-        _reader.StatusChanged += msg => StatusChanged?.Invoke(msg);
-        _reader.DeviceDiscovered += OnDeviceDiscovered;
-        _reader.DeviceRemoved += id => DeviceRemoved?.Invoke(id);
-        _reader.ScanCompleted += () => ScanCompleted?.Invoke();
-        _reader.ConnectionChanged += connected => ConnectionChanged?.Invoke(connected);
-        _reader.HardwareTriggerPressed += () => HardwareTriggerPressed?.Invoke();
+        _reader.StatusChanged += msg => RunOnUiThread(() => StatusChanged?.Invoke(msg));
+        _reader.DeviceDiscovered += device => RunOnUiThread(() => OnDeviceDiscovered(device));
+        _reader.DeviceRemoved += id => RunOnUiThread(() => DeviceRemoved?.Invoke(id));
+        _reader.ScanCompleted += () => RunOnUiThread(() => ScanCompleted?.Invoke());
+        _reader.ConnectionChanged += connected => RunOnUiThread(() => ConnectionChanged?.Invoke(connected));
+        _reader.HardwareTriggerPressed += () => RunOnUiThread(() => HardwareTriggerPressed?.Invoke());
         _reader.TagReceived += tag => TagReceived?.Invoke(
             RfidTagMapper.FromScanned(tag.Epc, tag.Tid, tag.User, tag.RssiRaw));
     }
