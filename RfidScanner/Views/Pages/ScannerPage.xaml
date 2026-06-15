@@ -100,11 +100,15 @@
 
                         <Button Command="{Binding ToggleSoundCommand}" Margin="0,0,0,6">
                             <Button.Style>
-                                <Style TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
-                                    <Setter Property="Content" Value="Mute Beep"/>
+                                <Style TargetType="Button" BasedOn="{StaticResource WarningButton}">
+                                    <Setter Property="Content" Value="Unmute Beep"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsSoundMuted}" Value="True">
-                                            <Setter Property="Content" Value="Unmute Beep"/>
+                                        <DataTrigger Binding="{Binding IsSoundMuted}" Value="False">
+                                            <Setter Property="Content" Value="Mute Beep"/>
+                                            <Setter Property="Background" Value="{StaticResource BgCardBrush}"/>
+                                            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+                                            <Setter Property="BorderThickness" Value="1"/>
+                                            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -112,7 +116,7 @@
                         </Button>
 
                         <Button Content="Connect" Style="{StaticResource PrimaryButton}" Command="{Binding ConnectCommand}" Margin="0,0,0,6"/>
-                        <Button Content="Disconnect" Style="{StaticResource SecondaryButton}" Command="{Binding DisconnectCommand}"/>
+                        <Button Content="Disconnect" Style="{StaticResource DangerButton}" Command="{Binding DisconnectCommand}"/>
                     </StackPanel>
                 </Grid>
             </Border>
