@@ -80,6 +80,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0"
@@ -103,115 +104,83 @@
                         </Button.Style>
                     </Button>
 
-                    <Border Grid.Row="2"
+                    <TextBlock Grid.Row="2"
+                               Text="{Binding DeviceListStatus}"
+                               FontSize="12"
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Margin="0,0,0,8"
+                               TextWrapping="Wrap"/>
+
+                    <Border Grid.Row="3"
                             BorderBrush="{StaticResource BorderBrush}"
                             BorderThickness="1"
                             CornerRadius="6"
-                            MinHeight="160"
-                            MaxHeight="260"
                             Margin="0,0,0,10">
-                        <Grid>
-                            <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                          Padding="6">
-                                <ItemsControl ItemsSource="{Binding Devices}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Button Style="{StaticResource DeviceListItemButton}"
-                                                    Command="{Binding DataContext.ConnectToDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                                    CommandParameter="{Binding}">
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="4"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                    </Grid.ColumnDefinitions>
-                                                    <Border Grid.Column="0"
-                                                            CornerRadius="2"
-                                                            Margin="0,2,8,2">
-                                                        <Border.Style>
-                                                            <Style TargetType="Border">
-                                                                <Setter Property="Background" Value="{StaticResource BorderBrush}"/>
-                                                                <Style.Triggers>
-                                                                    <DataTrigger Binding="{Binding IsChainway}" Value="True">
-                                                                        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
-                                                                    </DataTrigger>
-                                                                </Style.Triggers>
-                                                            </Style>
-                                                        </Border.Style>
-                                                    </Border>
-                                                    <StackPanel Grid.Column="1">
-                                                        <TextBlock Text="{Binding DeviceLabel}"
-                                                                   FontWeight="SemiBold"
-                                                                   FontSize="13"
-                                                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                                                   TextTrimming="CharacterEllipsis"/>
-                                                        <TextBlock FontSize="11"
-                                                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                                                   Margin="0,2,0,0">
-                                                            <Run Text="{Binding Mac, Mode=OneWay}"/>
-                                                            <Run Text=" · "/>
-                                                            <Run Text="{Binding ConnectionType, Mode=OneWay}"/>
-                                                        </TextBlock>
-                                                        <TextBlock Text="Tap to connect"
-                                                                   FontSize="10"
-                                                                   Foreground="{StaticResource AccentBrush}"
-                                                                   Margin="0,4,0,0">
-                                                            <TextBlock.Style>
-                                                                <Style TargetType="TextBlock">
-                                                                    <Setter Property="Visibility" Value="Collapsed"/>
-                                                                    <Style.Triggers>
-                                                                        <DataTrigger Binding="{Binding IsChainway}" Value="True">
-                                                                            <Setter Property="Visibility" Value="Visible"/>
-                                                                        </DataTrigger>
-                                                                    </Style.Triggers>
-                                                                </Style>
-                                                            </TextBlock.Style>
-                                                        </TextBlock>
-                                                    </StackPanel>
-                                                </Grid>
-                                            </Button>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
-
-                            <TextBlock Text="No devices yet — tap Scan Devices"
-                                       FontSize="12"
-                                       Foreground="{StaticResource TextSecondaryBrush}"
-                                       TextAlignment="Center"
-                                       TextWrapping="Wrap"
-                                       Margin="12"
-                                       VerticalAlignment="Center"
-                                       HorizontalAlignment="Center"
-                                       Visibility="{Binding ShowDevicePlaceholder, Converter={StaticResource BoolToVis}}"/>
-
-                            <StackPanel VerticalAlignment="Center"
-                                        HorizontalAlignment="Center"
-                                        Visibility="{Binding ShowDeviceScanning, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="Scanning..."
-                                           FontSize="13"
-                                           FontWeight="SemiBold"
-                                           Foreground="{StaticResource AccentBrush}"
-                                           HorizontalAlignment="Center"/>
-                                <TextBlock Text="Looking for nearby BLE devices"
-                                           FontSize="11"
-                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                           HorizontalAlignment="Center"
-                                           Margin="0,6,0,0"/>
-                            </StackPanel>
-
-                            <Border Background="#CCFFFFFF"
-                                    Visibility="{Binding IsConnecting, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="Connecting..."
-                                           FontSize="13"
-                                           FontWeight="SemiBold"
-                                           Foreground="{StaticResource AccentBrush}"
-                                           VerticalAlignment="Center"
-                                           HorizontalAlignment="Center"/>
-                            </Border>
-                        </Grid>
+                        <ListBox ItemsSource="{Binding Devices}"
+                                 SelectedItem="{Binding SelectedDevice}"
+                                 BorderThickness="0"
+                                 Background="Transparent"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 Height="220">
+                            <ListBox.ItemContainerStyle>
+                                <Style TargetType="ListBoxItem">
+                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                    <Setter Property="Padding" Value="0"/>
+                                    <Setter Property="Margin" Value="0,0,0,4"/>
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ListBoxItem">
+                                                <ContentPresenter/>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </ListBox.ItemContainerStyle>
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource DeviceListItemButton}"
+                                            Margin="0"
+                                            Command="{Binding DataContext.ConnectToDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="4"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0"
+                                                    CornerRadius="2"
+                                                    Margin="0,2,8,2">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{StaticResource BorderBrush}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsChainway}" Value="True">
+                                                                <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                            </Border>
+                                            <StackPanel Grid.Column="1">
+                                                <TextBlock Text="{Binding DeviceLabel}"
+                                                           FontWeight="SemiBold"
+                                                           FontSize="13"
+                                                           Foreground="{StaticResource TextPrimaryBrush}"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock FontSize="11"
+                                                           Foreground="{StaticResource TextSecondaryBrush}"
+                                                           Margin="0,2,0,0"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Text="{Binding Mac}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
                     </Border>
 
-                    <Border Grid.Row="3"
+                    <Border Grid.Row="4"
                             Background="#E8F5E9"
                             BorderBrush="{StaticResource SuccessBrush}"
                             BorderThickness="1"
@@ -226,7 +195,7 @@
                                    TextWrapping="Wrap"/>
                     </Border>
 
-                    <StackPanel Grid.Row="4">
+                    <StackPanel Grid.Row="5">
                         <Grid Margin="0,0,0,10">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>

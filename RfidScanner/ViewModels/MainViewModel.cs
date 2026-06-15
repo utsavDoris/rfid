@@ -62,6 +62,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string _scanDurationDisplay = "0s";
 
+    [ObservableProperty]
+    private int _deviceCount;
+
+    [ObservableProperty]
+    private string _deviceListStatus = "Tap Scan Devices to find your R6 reader.";
+
     public ObservableCollection<BluetoothDeviceInfo> Devices { get; } = new();
     public ObservableCollection<RfidTag> LiveTags => _tagManager.LiveTags;
 
@@ -79,6 +85,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel()
     {
         LiveTagsView = CollectionViewSource.GetDefaultView(LiveTags);
+        Devices.CollectionChanged += (_, _) => UpdateDeviceListStatus();
 
         InitializeBluetooth();
 
@@ -180,6 +187,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (IsScanning)
         {
             await _bluetooth.StopScanAsync();
+            await Task.Delay(300).ConfigureAwait(true);
+            if (IsScanning)
+            {
+                IsScanning = false;
+                UpdateDeviceListStatus();
+            }
             return;
         }
 
@@ -188,7 +201,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             IsScanning = true;
             StatusMessage = "Scanning for Bluetooth devices...";
             Devices.Clear();
-            NotifyDevicePanelState();
+            UpdateDeviceListStatus();
             await _bluetooth.BeginScanAsync();
         }
         catch (Exception ex)
@@ -200,17 +213,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void OnDeviceDiscovered(BluetoothDeviceInfo device)
     {
-        RunOnUi(() =>
+        RunOnUiAsync(() =>
         {
-            if (Devices.Any(d => d.Mac == device.Mac))
+            if (Devices.Any(d =>
+                    string.Equals(d.Address, device.Address, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrWhiteSpace(device.Mac) &&
+                     string.Equals(d.Mac, device.Mac, StringComparison.OrdinalIgnoreCase))))
                 return;
 
             if (device.IsChainway)
                 Devices.Insert(0, device);
             else
                 Devices.Add(device);
-
-            NotifyDevicePanelState();
         });
     }
 
@@ -224,7 +238,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         RunOnUi(() =>
         {
             IsScanning = false;
-            NotifyDevicePanelState();
+            UpdateDeviceListStatus();
             if (Devices.Count > 0)
             {
                 var chainwayCount = Devices.Count(d => d.IsChainway);
@@ -237,6 +251,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 StatusMessage = "No devices found. Power on R6 and ensure Bluetooth is enabled.";
             }
         });
+    }
+
+    private void UpdateDeviceListStatus()
+    {
+        DeviceCount = Devices.Count;
+
+        if (IsScanning && DeviceCount == 0)
+            DeviceListStatus = "Scanning for nearby BLE devices...";
+        else if (IsScanning)
+            DeviceListStatus = $"{DeviceCount} device(s) found — still scanning...";
+        else if (DeviceCount == 0)
+            DeviceListStatus = "No devices — tap Scan Devices";
+        else
+            DeviceListStatus = $"{DeviceCount} device(s) — tap one to connect";
+
+        OnPropertyChanged(nameof(ShowDevicePlaceholder));
+        OnPropertyChanged(nameof(ShowDeviceScanning));
+        OnPropertyChanged(nameof(ConnectedDeviceText));
     }
 
     [RelayCommand(CanExecute = nameof(CanConnectToDevice))]
@@ -278,7 +310,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             {
                 await bluetooth.StopScanAsync();
                 IsScanning = false;
-                NotifyDevicePanelState();
+                UpdateDeviceListStatus();
                 await Task.Delay(500).ConfigureAwait(true);
             }
 
@@ -502,12 +534,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnSelectedDeviceChanged(BluetoothDeviceInfo? value)
     {
-        NotifyDevicePanelState();
+        UpdateDeviceListStatus();
         RefreshCommands();
     }
     partial void OnIsScanningChanged(bool value)
     {
-        NotifyDevicePanelState();
+        UpdateDeviceListStatus();
         RefreshCommands();
     }
 
@@ -516,7 +548,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         RefreshCommands();
         NotifyTagPanelState();
-        NotifyDevicePanelState();
+        UpdateDeviceListStatus();
     }
 
     partial void OnIsInventoryRunningChanged(bool value)
@@ -564,12 +596,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         RefreshLiveStats();
     }
 
-    private void NotifyDevicePanelState()
-    {
-        OnPropertyChanged(nameof(ShowDevicePlaceholder));
-        OnPropertyChanged(nameof(ShowDeviceScanning));
-        OnPropertyChanged(nameof(ConnectedDeviceText));
-    }
+    private void NotifyDevicePanelState() => UpdateDeviceListStatus();
 
     private void RefreshCommands()
     {
@@ -589,6 +616,15 @@ public partial class MainViewModel : ObservableObject, IDisposable
             action();
         else
             dispatcher.Invoke(action);
+    }
+
+    private static void RunOnUiAsync(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
+            action();
+        else
+            dispatcher.BeginInvoke(action);
     }
 
     public void Dispose()

@@ -89,9 +89,11 @@ public sealed class ChainwayReader : IDisposable
 
                 _scanResults.Clear();
                 _scanning = true;
-                StatusChanged?.Invoke("Scanning BLE devices...");
-                Reader.StartBleDeviceWatcher(OnScanDevice);
             }
+
+            // Must not hold _scanLock here — watcher can call OnScanDevice synchronously and deadlock.
+            StatusChanged?.Invoke("Scanning BLE devices...");
+            Reader.StartBleDeviceWatcher(OnScanDevice);
         });
     }
 
@@ -136,14 +138,18 @@ public sealed class ChainwayReader : IDisposable
                 IsChainway = IsChainwayName(name)
             };
 
+            ScannedDevice? discovered = null;
             lock (_scanLock)
             {
-                if (_scanResults.All(d => d.Mac != scanned.Mac))
+                if (_scanResults.All(d => d.DeviceId != scanned.DeviceId && d.Mac != scanned.Mac))
                 {
                     _scanResults.Add(scanned);
-                    DeviceDiscovered?.Invoke(scanned);
+                    discovered = scanned;
                 }
             }
+
+            if (discovered != null)
+                DeviceDiscovered?.Invoke(discovered);
         }
         else if (!string.IsNullOrEmpty(removeId))
         {

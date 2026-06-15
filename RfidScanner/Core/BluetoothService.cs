@@ -34,16 +34,16 @@ public class BluetoothService : IDisposable
         _bleHost.Start();
         _reader = new ChainwayReader(_bleHost);
         _reader.StatusChanged += msg => RunOnUiThread(() => StatusChanged?.Invoke(msg));
-        _reader.DeviceDiscovered += device => RunOnUiThread(() => OnDeviceDiscovered(device));
-        _reader.DeviceRemoved += id => RunOnUiThread(() => DeviceRemoved?.Invoke(id));
-        _reader.ScanCompleted += () => RunOnUiThread(() => ScanCompleted?.Invoke());
+        _reader.DeviceDiscovered += device => RunOnUiThread(() => OnDeviceDiscovered(device), async: true);
+        _reader.DeviceRemoved += id => RunOnUiThread(() => DeviceRemoved?.Invoke(id), async: true);
+        _reader.ScanCompleted += () => RunOnUiThread(() => ScanCompleted?.Invoke(), async: true);
         _reader.ConnectionChanged += connected => RunOnUiThread(() => ConnectionChanged?.Invoke(connected));
         _reader.HardwareTriggerPressed += () => RunOnUiThread(() => HardwareTriggerPressed?.Invoke());
         _reader.TagReceived += tag => TagReceived?.Invoke(
             RfidTagMapper.FromScanned(tag.Epc, tag.Tid, tag.User, tag.RssiRaw));
     }
 
-    private static void RunOnUiThread(Action action)
+    private static void RunOnUiThread(Action action, bool async = false)
     {
         var dispatcher = Application.Current?.Dispatcher;
         if (dispatcher == null || dispatcher.CheckAccess())
@@ -52,7 +52,10 @@ public class BluetoothService : IDisposable
             return;
         }
 
-        dispatcher.Invoke(action, DispatcherPriority.Normal);
+        if (async)
+            dispatcher.BeginInvoke(action, DispatcherPriority.Normal);
+        else
+            dispatcher.Invoke(action, DispatcherPriority.Normal);
     }
 
     private void OnDeviceDiscovered(ScannedDevice device)
