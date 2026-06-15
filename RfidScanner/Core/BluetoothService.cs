@@ -78,8 +78,7 @@ public class BluetoothService : IDisposable
 
     public Task StopScanAsync()
     {
-        _reader.StopScan();
-        return Task.CompletedTask;
+        return Task.Run(() => _reader.StopScan());
     }
 
     public async Task ConnectAsync(BluetoothDeviceInfo device)

@@ -245,8 +245,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             {
                 var chainwayCount = Devices.Count(d => d.IsChainway);
                 StatusMessage = chainwayCount > 0
-                    ? $"Found {Devices.Count} device(s). Tap your R6 reader to connect."
-                    : $"Found {Devices.Count} device(s). Tap a device to connect.";
+                    ? $"Found {Devices.Count} device(s). Select R6 and tap Connect."
+                    : $"Found {Devices.Count} device(s). Select a device and tap Connect.";
             }
             else
             {
@@ -266,7 +266,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         else if (DeviceCount == 0)
             DeviceListStatus = "No devices — tap Scan Devices";
         else
-            DeviceListStatus = $"{DeviceCount} device(s) — tap one to connect";
+            DeviceListStatus = $"{DeviceCount} device(s) — select and tap Connect";
 
         OnPropertyChanged(nameof(ShowDevicePlaceholder));
         OnPropertyChanged(nameof(ShowDeviceScanning));
@@ -308,16 +308,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             var bluetooth = RequireBluetooth();
 
-            if (IsScanning)
+            if (IsScanning || bluetooth.IsScanning)
             {
-                await bluetooth.StopScanAsync();
+                StatusMessage = "Stopping device scan...";
+                await bluetooth.StopScanAsync().ConfigureAwait(true);
                 IsScanning = false;
                 UpdateDeviceListStatus();
-                await Task.Delay(500).ConfigureAwait(true);
+                await Task.Delay(400).ConfigureAwait(true);
             }
 
             StatusMessage = $"Connecting to {device.DeviceLabel} (direct BLE — no Windows pairing)...";
-            await bluetooth.ConnectAsync(device);
+            await bluetooth.ConnectAsync(device).ConfigureAwait(true);
 
             if (!bluetooth.IsConnected)
                 return;

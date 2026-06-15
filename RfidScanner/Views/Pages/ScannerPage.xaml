@@ -191,6 +191,11 @@
                             </Button.Style>
                         </Button>
 
+                        <Button Content="Connect"
+                                Style="{StaticResource PrimaryButton}"
+                                Command="{Binding ConnectCommand}"
+                                Margin="0,0,0,6"/>
+
                         <Button Content="Disconnect"
                                 Style="{StaticResource DangerButton}"
                                 Command="{Binding DisconnectCommand}"/>
@@ -395,7 +400,7 @@
         </Grid>
 
         <TextBlock Grid.Row="2"
-                   Text="Scan Devices, then tap your R6 in the list to connect directly — do not pair in Windows Bluetooth settings."
+                   Text="Scan Devices, then select your R6 and tap Connect (or tap the device in the list). Do not pair in Windows Bluetooth."
                    Foreground="{StaticResource TextSecondaryBrush}"
                    FontSize="11"
                    Margin="0,10,0,0"

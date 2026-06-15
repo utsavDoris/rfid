@@ -103,7 +103,8 @@ public sealed class ChainwayReader : IDisposable
     /// <summary>MainForm.btnSearch_Click (stop) — stop BLE watcher.</summary>
     public void StopScan()
     {
-        _post(() =>
+        // Synchronous on BLE thread so connect can wait for watcher to fully stop.
+        _invoke(() =>
         {
             lock (_scanLock)
             {
