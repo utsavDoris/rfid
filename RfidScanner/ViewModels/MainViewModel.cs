@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RfidScanner.Core;
+using RfidScanner.ChainwayBridge;
 using RfidScanner.Models;
 
 namespace RfidScanner.ViewModels;
@@ -140,7 +141,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
-            if (IsConnected)
+            if (IsConnected || IsConnecting)
                 await DisconnectReaderAsync();
         }
         catch
@@ -276,7 +277,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanConnectToDevice))]
     private async Task ConnectToDeviceAsync(BluetoothDeviceInfo? device)
     {
-        if (device == null || IsConnecting || IsConnected)
+        if (device == null)
             return;
 
         SelectedDevice = device;
@@ -289,17 +290,35 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [RelayCommand(CanExecute = nameof(CanConnectLegacy))]
     private async Task ConnectAsync()
     {
-        if (SelectedDevice != null)
-            await ConnectReaderAsync(SelectedDevice);
+        if (SelectedDevice == null)
+        {
+            StatusMessage = "Select a device from the list first.";
+            return;
+        }
+
+        await ConnectReaderAsync(SelectedDevice);
     }
 
     private bool CanConnectLegacy() =>
         SelectedDevice != null && !IsConnected && !IsConnecting;
 
+    /// <summary>Called from ScannerPage list click — same path as Connect button.</summary>
+    public Task ConnectDeviceAsync(BluetoothDeviceInfo device)
+    {
+        SelectedDevice = device;
+        return ConnectReaderAsync(device);
+    }
+
     private async Task ConnectReaderAsync(BluetoothDeviceInfo device)
     {
         if (IsConnecting)
             return;
+
+        if (!ChainwayReader.IsBleScanDeviceId(device.Address))
+        {
+            StatusMessage = "Invalid device ID — use Scan Devices and select R6 from the list.";
+            return;
+        }
 
         IsConnecting = true;
         RefreshCommands();
@@ -317,26 +336,27 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 await Task.Delay(400).ConfigureAwait(true);
             }
 
-            StatusMessage = $"Connecting to {device.DeviceLabel} (direct BLE — no Windows pairing)...";
+            StatusMessage = $"Connecting to {device.DeviceLabel}...";
             await bluetooth.ConnectAsync(device).ConfigureAwait(true);
 
-            if (!bluetooth.IsConnected)
+            IsConnected = bluetooth.IsConnected;
+            if (!IsConnected)
+            {
+                StatusMessage = "Could not connect. Select R6 and tap Connect again.";
                 return;
+            }
 
             var pwr = bluetooth.GetPower();
             if (pwr > 0) TransmitPower = pwr;
 
             ApplyReaderBeep();
-
-            await Task.Delay(800).ConfigureAwait(true);
-
-            if (!bluetooth.IsConnected)
-            {
-                StatusMessage = "Reader disconnected during connect. Tap the device to try again.";
-                return;
-            }
-
-            StatusMessage = "R6 connected. Press trigger on device or click Start Scan.";
+            StatusMessage = "R6 connected. Press Start Scan or device trigger.";
+            NotifyTagPanelState();
+        }
+        catch (OperationCanceledException)
+        {
+            IsConnected = false;
+            StatusMessage = "Connect cancelled.";
         }
         catch (Exception ex)
         {
@@ -462,26 +482,39 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public async Task DisconnectReaderAsync()
     {
-        if (!IsConnected || _bluetooth == null)
+        if (_bluetooth == null)
             return;
 
-        if (IsInventoryRunning)
-            await _bluetooth.StopInventoryAsync();
+        try
+        {
+            if (IsInventoryRunning)
+                await _bluetooth.StopInventoryAsync().ConfigureAwait(true);
 
-        await _bluetooth.DisconnectAsync();
-        IsInventoryRunning = false;
-        IsConnected = false;
+            await _bluetooth.DisconnectAsync().ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Disconnect error: {ex.Message}";
+        }
+        finally
+        {
+            IsConnecting = false;
+            IsInventoryRunning = false;
+            IsConnected = false;
+            NotifyTagPanelState();
+            UpdateDeviceListStatus();
+            RefreshCommands();
+        }
     }
 
     [RelayCommand(CanExecute = nameof(CanDisconnect))]
     private async Task DisconnectAsync()
     {
-        await DisconnectReaderAsync();
-        StatusMessage = "Disconnected from app.";
-        RefreshCommands();
+        await DisconnectReaderAsync().ConfigureAwait(true);
+        StatusMessage = "Disconnected. Scan Devices to connect again.";
     }
 
-    private bool CanDisconnect() => IsConnected;
+    private bool CanDisconnect() => IsConnected || IsConnecting;
 
     [RelayCommand]
     private void ClearLiveTags()

@@ -221,7 +221,7 @@ public sealed class ChainwayReader : IDisposable
             throw new InvalidOperationException(
                 "Use Scan Devices and select R6 from the list. Do not connect via Windows paired Bluetooth.");
 
-        var tcs = new TaskCompletionSource<bool>();
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         _invoke(() =>
         {
@@ -245,7 +245,17 @@ public sealed class ChainwayReader : IDisposable
             }
         });
 
-        return tcs.Task;
+        return WaitForConnectAsync(tcs, TimeSpan.FromSeconds(25));
+    }
+
+    private static async Task WaitForConnectAsync(TaskCompletionSource<bool> tcs, TimeSpan timeout)
+    {
+        var delay = Task.Delay(timeout);
+        var completed = await Task.WhenAny(tcs.Task, delay).ConfigureAwait(false);
+        if (completed != tcs.Task)
+            throw new TimeoutException("Connection timed out. Ensure R6 is on, then select it and tap Connect.");
+
+        await tcs.Task.ConfigureAwait(false);
     }
 
     /// <summary>Stop watcher and clear stale GATT link before direct BLE connect (avoids pair popup churn).</summary>
@@ -412,7 +422,10 @@ public sealed class ChainwayReader : IDisposable
 
         if (_connectTcs != null)
         {
-            _connectTcs.TrySetException(new InvalidOperationException("Failed to connect to reader."));
+            if (_intentionalDisconnect)
+                _connectTcs.TrySetCanceled();
+            else
+                _connectTcs.TrySetException(new InvalidOperationException("Failed to connect to reader."));
             _connectTcs = null;
         }
     }
@@ -567,6 +580,13 @@ public sealed class ChainwayReader : IDisposable
             StopKeepAlive();
             StopInventoryInternal();
             DisableHardwareTrigger();
+
+            if (_connectTcs != null)
+            {
+                _connectTcs.TrySetCanceled();
+                _connectTcs = null;
+            }
+
             try { Reader.DisConnect(); } catch { /* ignore */ }
             _isConnected = false;
             _epcTidModeConfigured = false;

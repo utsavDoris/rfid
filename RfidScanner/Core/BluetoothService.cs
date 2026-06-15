@@ -85,12 +85,15 @@ public class BluetoothService : IDisposable
     {
         if (IsScanning)
         {
-            await StopScanAsync().ConfigureAwait(true);
-            await Task.Delay(500).ConfigureAwait(true);
+            await StopScanAsync().ConfigureAwait(false);
+            await Task.Delay(400).ConfigureAwait(false);
         }
 
         StatusChanged?.Invoke($"Connecting to {device.DeviceLabel} (direct BLE)...");
-        await _reader.ConnectAsync(device.Address).ConfigureAwait(true);
+        await Task.Run(async () =>
+        {
+            await _reader.ConnectAsync(device.Address).ConfigureAwait(false);
+        }).ConfigureAwait(false);
 
         if (_reader.IsConnected)
             StatusChanged?.Invoke($"Connected to {device.DeviceLabel}.");
@@ -109,13 +112,9 @@ public class BluetoothService : IDisposable
         return Task.CompletedTask;
     }
 
-    public async Task DisconnectAsync()
+    public Task DisconnectAsync()
     {
-        await Task.Run(() =>
-        {
-            _reader.Disconnect();
-        }).ConfigureAwait(true);
-        StatusChanged?.Invoke("Disconnected from app (no Windows Bluetooth).");
+        return Task.Run(() => _reader.Disconnect());
     }
 
     public int GetPower() => _reader.GetPower();

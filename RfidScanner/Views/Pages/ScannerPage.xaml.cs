@@ -14,16 +14,33 @@ public partial class ScannerPage : UserControl
         InitializeComponent();
     }
 
-    private void DeviceListBox_OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private async void DeviceListBox_OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (DataContext is not MainViewModel vm || vm.IsConnecting)
+        if (ResolveViewModel() is not MainViewModel vm || vm.IsConnecting || vm.IsConnected)
             return;
 
         if (FindDeviceFromClick(sender, e) is not BluetoothDeviceInfo device)
             return;
 
+        e.Handled = true;
         DeviceListBox.SelectedItem = device;
-        vm.ConnectToDeviceCommand.Execute(device);
+
+        try
+        {
+            await vm.ConnectDeviceAsync(device).ConfigureAwait(true);
+        }
+        catch
+        {
+            // ViewModel sets StatusMessage on failure.
+        }
+    }
+
+    private MainViewModel? ResolveViewModel()
+    {
+        if (DataContext is MainViewModel vm)
+            return vm;
+
+        return DeviceListBox.DataContext as MainViewModel;
     }
 
     private static BluetoothDeviceInfo? FindDeviceFromClick(object sender, MouseButtonEventArgs e)
@@ -38,7 +55,6 @@ public partial class ScannerPage : UserControl
         if (element is ListBoxItem { DataContext: BluetoothDeviceInfo device })
             return device;
 
-        // Fallback: hit-test when visual tree walk misses (virtualized / template edge cases).
         var hit = VisualTreeHelper.HitTest(listBox, e.GetPosition(listBox))?.VisualHit;
         while (hit != null && hit is not ListBoxItem)
             hit = VisualTreeHelper.GetParent(hit);
