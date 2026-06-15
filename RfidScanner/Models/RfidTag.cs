@@ -79,8 +79,8 @@ public class RfidTag : INotifyPropertyChanged
         set => Epc = value;
     }
 
-    /// <summary>Tag column: TID only.</summary>
-    public string TidDisplay => string.IsNullOrWhiteSpace(Tid) ? "—" : Tid;
+    /// <summary>Tag column: continuous hex TID (no spaces).</summary>
+    public string TidDisplay => string.IsNullOrWhiteSpace(Tid) ? "—" : Tid.Replace(" ", "").Replace("-", "");
 
     /// <summary>RFIDStockPro-style display: "Tag ID: {TID or EPC}".</summary>
     public string TagIdDisplay
