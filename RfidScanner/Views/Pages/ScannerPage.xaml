@@ -162,81 +162,56 @@
                         </Grid>
                     </Border>
 
-                    <!-- Total Found header (RFIDStockPro) -->
-                    <Border Grid.Row="1" Padding="16,14">
-                        <Grid>
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <TextBlock Text="{Binding UniqueTagCount}"
-                                           FontSize="20" FontWeight="Bold"
-                                           Foreground="{StaticResource AccentBrush}"/>
-                                <TextBlock Text="Total Found"
-                                           FontSize="20" FontWeight="Bold"
-                                           Foreground="{StaticResource AccentBrush}"
-                                           Margin="10,0,0,0"/>
-                            </StackPanel>
-                            <Button Content="Clear"
-                                    Style="{StaticResource SecondaryButton}"
-                                    Command="{Binding ClearLiveTagsCommand}"
-                                    HorizontalAlignment="Right"
-                                    VerticalAlignment="Center"
-                                    Padding="10,4"
-                                    FontSize="12"/>
-                        </Grid>
+                    <!-- Stats header -->
+                    <Border Grid.Row="1" Padding="16,12" BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                            <TextBlock Text="Unique Tags:"
+                                       FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                            <TextBlock Text="{Binding UniqueTagCount}"
+                                       FontSize="18" FontWeight="Bold"
+                                       Foreground="{StaticResource AccentBrush}"
+                                       Margin="8,0,20,0"/>
+                            <TextBlock Text="Scanned Count:"
+                                       FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                            <TextBlock Text="{Binding TotalReadCount}"
+                                       FontSize="18" FontWeight="Bold"
+                                       Foreground="{StaticResource AccentBrush}"
+                                       Margin="8,0,0,0"/>
+                        </StackPanel>
                     </Border>
 
-                    <!-- Tag list -->
-                    <Grid Grid.Row="2" Margin="8,0,8,8">
-                        <ListBox ItemsSource="{Binding LiveTagsView}"
-                                 Background="Transparent"
-                                 BorderThickness="0"
-                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                            <ListBox.ItemContainerStyle>
-                                <Style TargetType="ListBoxItem">
-                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                    <Setter Property="Padding" Value="0"/>
-                                    <Setter Property="Margin" Value="0"/>
-                                    <Setter Property="Background" Value="Transparent"/>
-                                    <Setter Property="BorderThickness" Value="0"/>
-                                    <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="ListBoxItem">
-                                                <ContentPresenter/>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </ListBox.ItemContainerStyle>
-                            <ListBox.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Background="{StaticResource BgCardBrush}"
-                                            BorderBrush="{StaticResource BorderBrush}"
-                                            BorderThickness="1"
-                                            CornerRadius="8"
-                                            Margin="4,3"
-                                            Padding="14,12">
-                                        <Grid>
-                                            <TextBlock Text="{Binding TagIdDisplay}"
-                                                       FontSize="14" FontWeight="SemiBold"
-                                                       Foreground="{StaticResource TextPrimaryBrush}"
-                                                       TextWrapping="Wrap"
-                                                       VerticalAlignment="Center"/>
-                                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <!-- Tag table -->
+                    <Grid Grid.Row="2" Margin="8,8,8,0">
+                        <DataGrid ItemsSource="{Binding LiveTagsView}"
+                                  HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal"
+                                  CanUserResizeColumns="True"
+                                  CanUserSortColumns="True"
+                                  AutoGenerateColumns="False"
+                                  MinHeight="120">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Tag"
+                                                    Binding="{Binding TidDisplay}"
+                                                    Width="*"
+                                                    MinWidth="180"/>
+                                <DataGridTextColumn Header="Count"
+                                                    Binding="{Binding ReadCount}"
+                                                    Width="80"/>
+                                <DataGridTemplateColumn Header="RSSI" Width="100">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                                 <Ellipse Width="8" Height="8" Margin="0,0,6,0"
                                                          Fill="{Binding Rssi, Converter={StaticResource RssiToColor}}"/>
-                                                <TextBlock Text="{Binding RssiDisplay}"
-                                                           FontSize="12"
-                                                           Foreground="{StaticResource TextSecondaryBrush}"/>
-                                                <TextBlock Text="{Binding ReadCount, StringFormat='  ×{0}'}"
-                                                           FontSize="12"
-                                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                                           Margin="8,0,0,0"/>
+                                                <TextBlock Text="{Binding RssiDisplay}" VerticalAlignment="Center"/>
                                             </StackPanel>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ListBox.ItemTemplate>
-                        </ListBox>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                            </DataGrid.Columns>
+                        </DataGrid>
 
                         <!-- Empty placeholder -->
                         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
@@ -270,8 +245,8 @@
                         </StackPanel>
                     </Grid>
 
-                    <!-- Start / Stop footer (RFIDStockPro) -->
-                    <Grid Grid.Row="3" Margin="12,0,12,12">
+                    <!-- Start / Stop -->
+                    <Grid Grid.Row="3" Margin="12,8,12,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="10"/>
@@ -291,65 +266,32 @@
                                 FontSize="14" FontWeight="SemiBold"/>
                     </Grid>
 
-                    <!-- Advanced options -->
-                    <Expander Grid.Row="4"
-                              Header="Search, history &amp; cloud sync"
-                              Margin="12,0,12,12"
-                              Foreground="{StaticResource TextSecondaryBrush}"
-                              FontSize="12">
-                        <StackPanel Margin="0,8,0,0">
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="100"/>
-                                    <ColumnDefinition Width="30"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Text="Search:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,10,0"/>
-                                <TextBox Grid.Column="1" Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Padding="6,4" Background="{StaticResource BgCardBrush}" Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="{StaticResource BgDarkBrush}" BorderThickness="1"/>
-                                <TextBlock Grid.Column="2" Text="Min RSSI:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="12,0,8,0"/>
-                                <Slider Grid.Column="3" Minimum="-100" Maximum="-30" Value="{Binding MinRssiFilter}" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1"/>
-                                <TextBlock Grid.Column="4" Text="{Binding MinRssiFilter}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Margin="6,0,0,0" FontSize="12"/>
-                            </Grid>
-
-                            <Grid Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <CheckBox Content="Cloud Sync" IsChecked="{Binding IsCloudSyncEnabled}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,10,0"/>
-                                <CheckBox Grid.Column="1" Content="Keyboard Wedge" IsChecked="{Binding IsKeyboardWedgeEnabled}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,10,0"/>
-                                <TextBlock Grid.Column="2" Text="API:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Margin="4,0,8,0"/>
-                                <TextBox Grid.Column="3" Text="{Binding ApiEndpoint, UpdateSourceTrigger=PropertyChanged}" Padding="6,4" Background="{StaticResource BgCardBrush}" Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="{StaticResource BgDarkBrush}" BorderThickness="1"/>
-                                <TextBlock Grid.Column="4" Text="{Binding CloudSyncQueueSize, StringFormat='Q: {0}'}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Margin="10,0,0,0" FontSize="12"/>
-                            </Grid>
-
-                            <TextBlock Text="Scan History" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,4,0,6"/>
-                            <DataGrid ItemsSource="{Binding HistoryTagsView}" MaxHeight="160" Margin="0,0,0,8">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="Tag ID" Binding="{Binding TagIdDisplay}" Width="*"/>
-                                    <DataGridTextColumn Header="RSSI" Binding="{Binding RssiDisplay}" Width="70"/>
-                                    <DataGridTextColumn Header="Reads" Binding="{Binding ReadCount}" Width="50"/>
-                                    <DataGridTextColumn Header="Scanned At" Binding="{Binding ScannedAt, StringFormat='yyyy-MM-dd HH:mm:ss'}" Width="140"/>
-                                </DataGrid.Columns>
-                            </DataGrid>
-                            <StackPanel Orientation="Horizontal">
-                                <Button Content="Export CSV" Style="{StaticResource PrimaryButton}" Command="{Binding ExportCsvCommand}" Margin="0,0,8,0"/>
-                                <Button Content="Clear History" Style="{StaticResource SecondaryButton}" Command="{Binding ClearHistoryCommand}"/>
-                                <TextBlock Text="{Binding TotalScanCount, StringFormat='{}{0} total scans'}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Margin="12,0,0,0" FontSize="12"/>
-                            </StackPanel>
-                        </StackPanel>
-                    </Expander>
+                    <!-- Clear / Export -->
+                    <Grid Grid.Row="4" Margin="12,0,12,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="10"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0"
+                                Content="Clear"
+                                Style="{StaticResource SecondaryButton}"
+                                Command="{Binding ClearLiveTagsCommand}"
+                                Padding="14,10"
+                                FontSize="14" FontWeight="SemiBold"/>
+                        <Button Grid.Column="2"
+                                Content="Export CSV / Excel"
+                                Style="{StaticResource PrimaryButton}"
+                                Command="{Binding ExportCsvCommand}"
+                                Padding="14,10"
+                                FontSize="14" FontWeight="SemiBold"/>
+                    </Grid>
                 </Grid>
             </Border>
         </Grid>
 
         <TextBlock Grid.Row="2"
-                   Text="Connect R6 → Start Scan or press device trigger. Tags appear live like RFIDStockPro."
+                   Text="Scan list is kept after disconnect. Use Clear to reset. Export opens in Excel."
                    Foreground="{StaticResource TextSecondaryBrush}"
                    FontSize="11"
                    Margin="0,10,0,0"

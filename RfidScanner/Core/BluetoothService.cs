@@ -80,7 +80,10 @@ public class BluetoothService : IDisposable
     public async Task ConnectAsync(BluetoothDeviceInfo device)
     {
         if (IsScanning)
+        {
             await StopScanAsync().ConfigureAwait(true);
+            await Task.Delay(450).ConfigureAwait(true);
+        }
 
         StatusChanged?.Invoke($"Connecting to {device.DeviceLabel}...");
         await _reader.ConnectAsync(device.Address).ConfigureAwait(true);
@@ -126,5 +129,19 @@ public class BluetoothService : IDisposable
         if (_disposed) return;
         _disposed = true;
         _reader.Dispose();
+    }
+
+    public void ShutdownReader()
+    {
+        if (_disposed)
+            return;
+
+        RunOnUiThread(() =>
+        {
+            if (_reader.IsInventoryRunning)
+                _reader.StopInventory();
+            if (_reader.IsConnected)
+                _reader.Disconnect();
+        });
     }
 }

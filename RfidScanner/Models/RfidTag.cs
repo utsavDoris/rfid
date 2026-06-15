@@ -79,6 +79,9 @@ public class RfidTag : INotifyPropertyChanged
         set => Epc = value;
     }
 
+    /// <summary>Tag column: TID only.</summary>
+    public string TidDisplay => string.IsNullOrWhiteSpace(Tid) ? "—" : Tid;
+
     /// <summary>RFIDStockPro-style display: "Tag ID: {TID or EPC}".</summary>
     public string TagIdDisplay
     {
@@ -112,6 +115,9 @@ public class RfidTag : INotifyPropertyChanged
         field = value;
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         if (propertyName is nameof(Tid) or nameof(Epc))
+        {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TagIdDisplay)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(TidDisplay)));
+        }
     }
 }

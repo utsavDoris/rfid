@@ -28,7 +28,25 @@ public partial class App : Application
         if (!TryInitializeSupabase())
             return;
 
+        TryRestoreUserSession();
+
         RunSessionLoop();
+    }
+
+    private void TryRestoreUserSession()
+    {
+        try
+        {
+            var restoreTask = Task.Run(() => SupabaseService.Instance.TryRestoreSessionAsync());
+            if (!restoreTask.Wait(TimeSpan.FromSeconds(12)))
+                return;
+
+            restoreTask.GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Session restore failed: {ex.Message}");
+        }
     }
 
     private bool TryInitializeSupabase()
@@ -62,16 +80,19 @@ public partial class App : Application
         }
     }
 
-    /// <summary>Login → Main → (logout → login again | close app)</summary>
+    /// <summary>Login (if needed) → Main → (logout → login again | close app)</summary>
     private void RunSessionLoop()
     {
         while (true)
         {
-            var loginWindow = new LoginWindow();
-            if (loginWindow.ShowDialog() != true)
+            if (!SupabaseService.Instance.IsAuthenticated)
             {
-                Shutdown();
-                return;
+                var loginWindow = new LoginWindow();
+                if (loginWindow.ShowDialog() != true)
+                {
+                    Shutdown();
+                    return;
+                }
             }
 
             if (!RunMainSession())

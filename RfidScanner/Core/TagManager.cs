@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
-using System.Threading;
 using System.Windows;
 using RfidScanner.Models;
 
@@ -12,7 +10,6 @@ public class TagManager
 {
     private readonly Dictionary<string, RfidTag> _liveTags = new();
     private readonly object _lock = new();
-    private Timer? _purgeTimer;
 
     public ObservableCollection<RfidTag> LiveTags { get; } = new();
     public event Action<RfidTag>? TagAddedOrUpdated;
@@ -21,18 +18,19 @@ public class TagManager
 
     public void Start()
     {
-        _purgeTimer ??= new Timer(PurgeStaleTags, null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        // Tags persist until the user clicks Clear.
     }
 
     public void Stop()
     {
-        _purgeTimer?.Dispose();
-        _purgeTimer = null;
     }
 
     public RfidTag ProcessTag(RfidTag incoming)
     {
-        var key = incoming.UniqueKey;
+        if (string.IsNullOrWhiteSpace(incoming.Tid))
+            return incoming;
+
+        var key = incoming.Tid;
         if (string.IsNullOrWhiteSpace(key))
             return incoming;
 
@@ -87,34 +85,6 @@ public class TagManager
                 LiveTagsChanged?.Invoke();
             });
         }
-    }
-
-    private void PurgeStaleTags(object? state)
-    {
-        var cutoff = DateTime.Now.AddSeconds(-30);
-        List<RfidTag>? toRemove = null;
-
-        lock (_lock)
-        {
-            toRemove = _liveTags.Values.Where(t => t.LastSeen < cutoff).ToList();
-            foreach (var tag in toRemove)
-                _liveTags.Remove(tag.UniqueKey);
-        }
-
-        if (toRemove == null || toRemove.Count == 0)
-            return;
-
-        RunOnUi(() =>
-        {
-            foreach (var tag in toRemove)
-            {
-                var item = LiveTags.FirstOrDefault(t => t.UniqueKey == tag.UniqueKey);
-                if (item != null)
-                    LiveTags.Remove(item);
-            }
-
-            LiveTagsChanged?.Invoke();
-        });
     }
 
     private static void RunOnUi(Action action)

@@ -1,8 +1,9 @@
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
@@ -10,7 +11,6 @@ using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RfidScanner.Core;
-using RfidScanner.Data;
 using RfidScanner.Models;
 
 namespace RfidScanner.ViewModels;
@@ -19,8 +19,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
 {
     private BluetoothService? _bluetooth;
     private readonly TagManager _tagManager = new();
-    private readonly ScanDatabase _database = new();
-    private readonly CloudSyncService _cloudSync = new();
     private DispatcherTimer? _scanDurationTimer;
     private DateTime _scanStartTime;
     private bool _disposed;
@@ -44,27 +42,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private int _liveTagCount;
 
     [ObservableProperty]
-    private int _totalScanCount;
-
-    [ObservableProperty]
-    private string _filterText = string.Empty;
-
-    [ObservableProperty]
-    private int _minRssiFilter = -100;
-
-    [ObservableProperty]
-    private string _apiEndpoint = string.Empty;
-
-    [ObservableProperty]
-    private bool _isCloudSyncEnabled;
-
-    [ObservableProperty]
-    private bool _isKeyboardWedgeEnabled;
-
-    [ObservableProperty]
-    private int _cloudSyncQueueSize;
-
-    [ObservableProperty]
     private int _transmitPower = 30;
 
     [ObservableProperty]
@@ -84,12 +61,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<BluetoothDeviceInfo> Devices { get; } = new();
     public ObservableCollection<RfidTag> LiveTags => _tagManager.LiveTags;
-    public ObservableCollection<RfidTag> HistoryTags { get; } = new();
 
     public string? CurrentUserEmail => SupabaseService.Instance.CurrentUserEmail;
 
     public ICollectionView LiveTagsView { get; }
-    public ICollectionView HistoryTagsView { get; }
 
     public bool ShowTagPlaceholder => !IsInventoryRunning && LiveTags.Count == 0;
     public bool ShowScanProgress => IsInventoryRunning && LiveTags.Count == 0;
@@ -98,22 +73,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
     public MainViewModel()
     {
         LiveTagsView = CollectionViewSource.GetDefaultView(LiveTags);
-        LiveTagsView.Filter = FilterTag;
-
-        HistoryTagsView = CollectionViewSource.GetDefaultView(HistoryTags);
-        HistoryTagsView.Filter = FilterTag;
-
-        _cloudSync.QueueSizeChanged += size => RunOnUi(() => CloudSyncQueueSize = size);
-        _cloudSync.SyncErrorOccurred += err => RunOnUi(() => StatusMessage = $"Cloud Sync Error: {err}");
-        _cloudSync.Start();
 
         InitializeBluetooth();
 
-        _tagManager.TagAddedOrUpdated += OnTagProcessed;
-        _tagManager.NewTagDiscovered += OnNewTagDiscovered;
+        _tagManager.TagAddedOrUpdated += _ => RunOnUi(RefreshLiveStats);
         _tagManager.LiveTagsChanged += () => RunOnUi(RefreshLiveStats);
         _tagManager.Start();
-        LoadHistory();
     }
 
     private void InitializeBluetooth()
@@ -133,7 +98,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 {
                     IsInventoryRunning = false;
                     StopScanDurationTimer();
-                    StatusMessage = "Reader disconnected — select device and connect again.";
+                    StatusMessage = "Reader disconnected — scan list kept. Reconnect to scan again.";
                 }
                 else
                 {
@@ -142,7 +107,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 NotifyTagPanelState();
                 RefreshCommands();
             });
-            _bluetooth.HardwareTriggerPressed += () => RunOnUi(() => _ = ToggleInventoryFromTriggerAsync());
+            _bluetooth.HardwareTriggerPressed += OnHardwareTriggerPressed;
         }
         catch (Exception ex)
         {
@@ -268,7 +233,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var bluetooth = RequireBluetooth();
 
             if (IsScanning)
+            {
                 await bluetooth.StopScanAsync();
+                IsScanning = false;
+                await Task.Delay(450).ConfigureAwait(true);
+            }
 
             StatusMessage = $"Connecting to {SelectedDevice.DeviceLabel}...";
             await bluetooth.ConnectAsync(SelectedDevice);
@@ -296,6 +265,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
             StatusMessage = $"Connection failed: {ex.Message}";
             IsConnected = false;
         }
+    }
+
+    private void OnHardwareTriggerPressed()
+    {
+        if (_disposed || !IsConnected)
+            return;
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null)
+            return;
+
+        dispatcher.BeginInvoke(new Action(() => _ = ToggleInventoryFromTriggerAsync()), DispatcherPriority.Normal);
     }
 
     private async Task ToggleInventoryFromTriggerAsync()
@@ -434,9 +415,30 @@ public partial class MainViewModel : ObservableObject, IDisposable
     {
         try
         {
-            var path = _database.ExportCsv();
-            StatusMessage = $"Exported to {path}";
-            MessageBox.Show($"Scan history exported to:\n{path}", "Export CSV", MessageBoxButton.OK, MessageBoxImage.Information);
+            if (LiveTags.Count == 0)
+            {
+                StatusMessage = "No tags to export.";
+                MessageBox.Show("No scanned tags to export.", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            var path = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                $"rfid_scan_{DateTime.Now:yyyyMMdd_HHmmss}.csv");
+
+            var sb = new StringBuilder();
+            sb.AppendLine("Tag,Count,RSSI");
+            foreach (var tag in LiveTags.OrderByDescending(t => t.LastSeen))
+            {
+                sb.AppendLine(string.Join(",",
+                    EscapeCsv(tag.TidDisplay),
+                    tag.ReadCount.ToString(),
+                    EscapeCsv(tag.RssiDisplay)));
+            }
+
+            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+            StatusMessage = $"Exported {LiveTags.Count} unique tag(s) to CSV.";
+            MessageBox.Show($"Exported to:\n{path}\n\nOpen in Excel or any spreadsheet app.", "Export CSV", MessageBoxButton.OK, MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
@@ -445,13 +447,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    [RelayCommand]
-    private void ClearHistory()
+    private static string EscapeCsv(string value)
     {
-        _database.ClearHistory();
-        HistoryTags.Clear();
-        TotalScanCount = 0;
-        StatusMessage = "Scan history cleared.";
+        if (value.Contains(",") || value.Contains("\"") || value.Contains("\n"))
+            return $"\"{value.Replace("\"", "\"\"")}\"";
+        return value;
     }
 
     partial void OnSelectedDeviceChanged(BluetoothDeviceInfo? value) => RefreshCommands();
@@ -475,82 +475,12 @@ public partial class MainViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ConnectionStatusText));
     }
 
-    partial void OnFilterTextChanged(string value)
-    {
-        RunOnUi(() => 
-        {
-            LiveTagsView.Refresh();
-            HistoryTagsView.Refresh();
-        });
-    }
-
-    partial void OnMinRssiFilterChanged(int value)
-    {
-        RunOnUi(() => 
-        {
-            LiveTagsView.Refresh();
-            HistoryTagsView.Refresh();
-        });
-    }
-
-    partial void OnApiEndpointChanged(string value) => _cloudSync.ApiEndpoint = value;
-    partial void OnIsCloudSyncEnabledChanged(bool value) => _cloudSync.IsSyncEnabled = value;
-
-    private bool FilterTag(object obj)
-    {
-        if (obj is not RfidTag tag) return false;
-
-        if (tag.Rssi < MinRssiFilter) return false;
-
-        if (string.IsNullOrWhiteSpace(FilterText)) return true;
-
-        var text = FilterText.Trim();
-        bool matches = false;
-
-        try 
-        {
-            var regex = new Regex(text, RegexOptions.IgnoreCase);
-            if (!string.IsNullOrEmpty(tag.Epc) && regex.IsMatch(tag.Epc)) matches = true;
-            if (!string.IsNullOrEmpty(tag.Tid) && regex.IsMatch(tag.Tid)) matches = true;
-        }
-        catch 
-        {
-            var lowerText = text.ToLowerInvariant();
-            if (!string.IsNullOrEmpty(tag.Epc) && tag.Epc.ToLowerInvariant().Contains(lowerText)) matches = true;
-            if (!string.IsNullOrEmpty(tag.Tid) && tag.Tid.ToLowerInvariant().Contains(lowerText)) matches = true;
-        }
-
-        return matches;
-    }
-
-    private void OnTagProcessed(RfidTag tag)
-    {
-        RunOnUi(() =>
-        {
-            _database.SaveScan(tag);
-            TotalScanCount++;
-            RefreshLiveStats();
-
-            var existing = HistoryTags.FirstOrDefault(h => h.UniqueKey == tag.UniqueKey);
-            if (existing != null)
-                HistoryTags.Remove(existing);
-
-            HistoryTags.Insert(0, tag);
-
-            while (HistoryTags.Count > 500)
-                HistoryTags.RemoveAt(HistoryTags.Count - 1);
-
-            if (IsCloudSyncEnabled)
-                _cloudSync.EnqueueTag(tag);
-        });
-    }
-
     private void RefreshLiveStats()
     {
         UniqueTagCount = LiveTags.Count;
         TotalReadCount = LiveTags.Sum(t => t.ReadCount);
         LiveTagCount = UniqueTagCount;
-        TagStatsDisplay = $"Total: {TotalReadCount}, Unique: {UniqueTagCount}";
+        TagStatsDisplay = $"Unique: {UniqueTagCount}, Scanned: {TotalReadCount}";
         NotifyTagPanelState();
     }
 
@@ -575,36 +505,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var seconds = (int)(DateTime.Now - _scanStartTime).TotalSeconds;
         ScanDurationDisplay = $"{seconds}s";
         RefreshLiveStats();
-    }
-
-    private void OnNewTagDiscovered(RfidTag tag)
-    {
-        if (IsKeyboardWedgeEnabled)
-        {
-            RunOnUi(() =>
-            {
-                try
-                {
-                    System.Windows.Forms.SendKeys.SendWait(tag.UniqueKey + "{ENTER}");
-                }
-                catch { /* ignore */ }
-            });
-        }
-    }
-
-    private void LoadHistory()
-    {
-        try
-        {
-            foreach (var tag in _database.GetHistory())
-                HistoryTags.Add(tag);
-
-            TotalScanCount = HistoryTags.Count;
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Could not load history: {ex.Message}";
-        }
     }
 
     private void RefreshCommands()
@@ -633,9 +533,16 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         StopScanDurationTimer();
         _tagManager.Stop();
-        _cloudSync.Stop();
+
+        try
+        {
+            _bluetooth?.ShutdownReader();
+        }
+        catch
+        {
+            // Continue shutdown even if reader cleanup fails.
+        }
+
         _bluetooth?.Dispose();
-        _database.Dispose();
-        _cloudSync.Dispose();
     }
 }

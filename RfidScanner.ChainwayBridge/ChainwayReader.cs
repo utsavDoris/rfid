@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -38,8 +39,13 @@ public sealed class ChainwayReader : IDisposable
     public event Action<string>? StatusChanged;
     public event Action? HardwareTriggerPressed;
 
-    private object? _triggerContext;
+    private readonly object _pumpLock = new();
+    private Thread? _pumpThread;
     private Form? _triggerForm;
+    private ManualResetEventSlim? _pumpReady;
+    private volatile bool _pumpRunning;
+    private DateTime _lastTriggerUtc = DateTime.MinValue;
+    private const int TriggerDebounceMs = 400;
 
     public bool IsConnected => _isConnected;
     public bool IsInventoryRunning => _isInventoryRunning;
@@ -200,9 +206,6 @@ public sealed class ChainwayReader : IDisposable
 
     private void EnsureScanStopped()
     {
-        if (!_scanning)
-            return;
-
         try
         {
             Reader.StopBleDeviceWatcher();
@@ -213,6 +216,7 @@ public sealed class ChainwayReader : IDisposable
         }
 
         _scanning = false;
+        Thread.Sleep(350);
     }
 
     private void OnConnectionStatusChanged(BluetoothConnectionStatus status, BluetoothLEDevice? device)
@@ -396,25 +400,178 @@ public sealed class ChainwayReader : IDisposable
     /// <summary>InventoryForm SetKeyDownCallBack — R6 physical trigger toggles scan.</summary>
     public void EnableHardwareTrigger()
     {
-        _invoke(() =>
+        if (_disposed)
+            return;
+
+        EnsureTriggerPump();
+        RunOnPumpThread(() =>
         {
-            _triggerForm ??= new Form { ShowInTaskbar = false, WindowState = FormWindowState.Minimized, Opacity = 0 };
-            _triggerContext = _triggerForm;
-            Reader.SetKeyDownCallBack(OnHardwareKeyDown, _triggerForm);
+            if (_disposed || _triggerForm == null || _triggerForm.IsDisposed)
+                return;
+
+            try
+            {
+                _triggerForm.Select();
+                Reader.SetKeyDownCallBack(OnHardwareKeyDown, _triggerForm);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"EnableHardwareTrigger failed: {ex.Message}");
+            }
         });
     }
 
     public void DisableHardwareTrigger()
     {
-        _invoke(() =>
+        try { Reader.SetKeyDownCallBack(null, null); } catch { /* ignore */ }
+
+        var form = _triggerForm;
+        if (form == null || form.IsDisposed || !_pumpRunning)
+            return;
+
+        try
         {
-            try { Reader.SetKeyDownCallBack(null, null); } catch { /* ignore */ }
-        });
+            form.Invoke((Action)(() =>
+            {
+                try { Reader.SetKeyDownCallBack(null, null); } catch { /* ignore */ }
+            }));
+        }
+        catch
+        {
+            // Pump is shutting down.
+        }
     }
 
     private void OnHardwareKeyDown(int keyCode)
     {
-        _invoke(() => HardwareTriggerPressed?.Invoke());
+        if (_disposed)
+            return;
+
+        var now = DateTime.UtcNow;
+        if ((now - _lastTriggerUtc).TotalMilliseconds < TriggerDebounceMs)
+            return;
+        _lastTriggerUtc = now;
+
+        try
+        {
+            HardwareTriggerPressed?.Invoke();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Hardware trigger callback failed: {ex.Message}");
+        }
+    }
+
+    private void EnsureTriggerPump()
+    {
+        lock (_pumpLock)
+        {
+            if (_pumpRunning && _triggerForm != null && !_triggerForm.IsDisposed)
+                return;
+
+            _pumpReady = new ManualResetEventSlim(false);
+            _pumpThread = new Thread(PumpThreadProc)
+            {
+                IsBackground = true,
+                Name = "ChainwayTriggerPump"
+            };
+            _pumpThread.SetApartmentState(ApartmentState.STA);
+            _pumpThread.Start();
+
+            if (!_pumpReady.Wait(TimeSpan.FromSeconds(5)))
+                throw new InvalidOperationException("WinForms trigger message pump failed to start.");
+        }
+    }
+
+    private void PumpThreadProc()
+    {
+        try
+        {
+            Application.EnableVisualStyles();
+            var form = new Form
+            {
+                ShowInTaskbar = false,
+                FormBorderStyle = FormBorderStyle.None,
+                StartPosition = FormStartPosition.Manual,
+                Location = new Point(-2000, -2000),
+                Size = new Size(1, 1),
+                Opacity = 0
+            };
+
+            form.Load += (_, _) =>
+            {
+                _pumpRunning = true;
+                _pumpReady?.Set();
+            };
+
+            _triggerForm = form;
+            Application.Run(form);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Trigger pump thread failed: {ex.Message}");
+            _pumpReady?.Set();
+        }
+        finally
+        {
+            _pumpRunning = false;
+            _triggerForm = null;
+        }
+    }
+
+    private void RunOnPumpThread(Action action)
+    {
+        if (_disposed)
+            return;
+
+        if (!_pumpRunning || _triggerForm == null || _triggerForm.IsDisposed)
+            return;
+
+        var form = _triggerForm;
+        try
+        {
+            if (form.InvokeRequired)
+                form.Invoke(action);
+            else
+                action();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Pump is shutting down.
+        }
+    }
+
+    private void StopTriggerPump()
+    {
+        var form = _triggerForm;
+        if (form == null || form.IsDisposed)
+            return;
+
+        try
+        {
+            if (form.InvokeRequired)
+                form.Invoke((Action)(() => Application.ExitThread()));
+            else
+                Application.ExitThread();
+        }
+        catch
+        {
+            // ignore
+        }
+
+        try
+        {
+            _pumpThread?.Join(2000);
+        }
+        catch
+        {
+            // ignore
+        }
+
+        _pumpThread = null;
+        _pumpReady?.Dispose();
+        _pumpReady = null;
+        _pumpRunning = false;
     }
 
     /// <summary>SettingsForm SetBeep — mute/unmute R6 reader beep on tag read.</summary>
@@ -470,21 +627,56 @@ public sealed class ChainwayReader : IDisposable
         try
         {
             if (_scanning)
-                StopScan();
+            {
+                try { Reader.StopBleDeviceWatcher(); } catch { /* ignore */ }
+                _scanning = false;
+            }
         }
         catch
         {
             // ignore
         }
 
-        Disconnect();
+        DisableHardwareTrigger();
+        StopInventoryForShutdown();
+        ShutdownConnection();
 
-        _invoke(() =>
+        StopTriggerPump();
+    }
+
+    private void StopInventoryForShutdown()
+    {
+        if (!IsInventoryRunning && (_readThread == null || !_readThread.IsAlive))
+            return;
+
+        _inventoryRunning = false;
+
+        var thread = _readThread;
+        _readThread = null;
+        try { thread?.Join(1000); } catch { /* ignore */ }
+
+        if (_isConnected)
         {
-            _triggerForm?.Dispose();
-            _triggerForm = null;
-            _triggerContext = null;
-        });
+            try
+            {
+                Thread.Sleep(100);
+                Reader.stopInventoryTag();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        _isInventoryRunning = false;
+    }
+
+    private void ShutdownConnection()
+    {
+        try { Reader.DisConnect(); } catch { /* ignore */ }
+        _isConnected = false;
+        _epcTidModeConfigured = false;
+        _connectedDeviceId = null;
     }
 }
 

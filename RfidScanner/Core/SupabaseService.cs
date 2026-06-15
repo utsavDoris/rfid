@@ -1,6 +1,7 @@
 using System;
 using System.Threading.Tasks;
 using Supabase;
+using RfidScanner.Models;
 
 namespace RfidScanner.Core;
 
@@ -49,14 +50,12 @@ public class SupabaseService
             if (users != null && users.Count > 0)
             {
                 var user = users.Find(u => !u.IsDeleted) ?? users[0];
-                if (!user.IsDeleted)
+                if (!user.IsDeleted && IsUserActive(user))
                 {
-                    CurrentUserProfile = user;
-                    AuthStateChanged?.Invoke(null); // Notify that auth state changed
+                    SetCurrentUser(user);
                     return (true, string.Empty);
                 }
             }
-            // If empty, return false
             return (false, "Invalid email or password.");
         }
         catch (Exception ex)
@@ -66,13 +65,85 @@ public class SupabaseService
         }
     }
 
+    /// <summary>RFIDStockPro SplashActivity: restore session if logged in previously.</summary>
+    public async Task<bool> TryRestoreSessionAsync()
+    {
+        var stored = SessionManager.LoadSession();
+        if (stored == null || !stored.IsLoggedIn || string.IsNullOrWhiteSpace(stored.Email))
+            return false;
+
+        try
+        {
+            var user = await GetUserByEmailAsync(stored.Email).ConfigureAwait(false);
+            if (user != null && !user.IsDeleted && IsUserActive(user))
+            {
+                SetCurrentUser(user);
+                return true;
+            }
+
+            SessionManager.ClearSession();
+            return false;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"TryRestoreSession online verify failed: {ex.Message}");
+
+            if (stored.CachedUser != null && !stored.CachedUser.IsDeleted)
+            {
+                SetCurrentUser(stored.CachedUser);
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    public async Task<UserModel?> GetUserByEmailAsync(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            return null;
+
+        try
+        {
+            var response = await Client.From<UserModel>()
+                .Where(x => x.Email == email)
+                .Get().ConfigureAwait(false);
+
+            var users = response.Models;
+            if (users == null || users.Count == 0)
+                return null;
+
+            return users.Find(u => !u.IsDeleted) ?? users[0];
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"GetUserByEmailAsync failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    private void SetCurrentUser(UserModel user)
+    {
+        CurrentUserProfile = user;
+        SessionManager.SaveSession(user);
+        AuthStateChanged?.Invoke(null);
+    }
+
+    private static bool IsUserActive(UserModel user)
+    {
+        return string.IsNullOrWhiteSpace(user.Status)
+            || user.Status.Equals("active", StringComparison.OrdinalIgnoreCase)
+            || user.Status.Equals("Active", StringComparison.OrdinalIgnoreCase);
+    }
+
     public RfidScanner.Models.UserModel? CurrentUserProfile { get; private set; }
 
     public async Task LogoutAsync()
     {
         CurrentUserProfile = null;
+        SessionManager.ClearSession();
         AuthStateChanged?.Invoke(null);
-        await Task.CompletedTask; // Keep signature async
+        await Task.CompletedTask;
     }
 
     public bool IsAuthenticated => CurrentUserProfile != null;
