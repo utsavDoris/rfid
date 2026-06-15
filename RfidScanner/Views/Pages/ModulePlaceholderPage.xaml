@@ -1,0 +1,40 @@
+<UserControl x:Class="RfidScanner.Views.Pages.ModulePlaceholderPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Border Background="{StaticResource BgPanelBrush}"
+            CornerRadius="10"
+            Padding="40"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center"
+            MaxWidth="520">
+        <StackPanel HorizontalAlignment="Center">
+            <TextBlock Text="{Binding Title}"
+                       FontSize="24"
+                       FontWeight="Bold"
+                       Foreground="{StaticResource AccentBrush}"
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="{Binding Description}"
+                       FontSize="14"
+                       Foreground="{StaticResource TextPrimaryBrush}"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center"
+                       Margin="0,16,0,0"/>
+            <Border Background="{StaticResource BgCardBrush}"
+                    CornerRadius="6"
+                    Padding="12,8"
+                    Margin="0,20,0,0"
+                    HorizontalAlignment="Center">
+                <TextBlock Text="{Binding Phase, StringFormat='Planned: \{0\}'}"
+                           Foreground="{StaticResource TextSecondaryBrush}"
+                           FontSize="12"/>
+            </Border>
+            <TextBlock Text="See FEATURE_PLAN.md in the project root for the full checklist."
+                       FontSize="11"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       TextAlignment="Center"
+                       Margin="0,16,0,0"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+    </Border>
+</UserControl>

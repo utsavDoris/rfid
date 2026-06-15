@@ -2,14 +2,14 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- Colors -->
-    <Color x:Key="BgDark">#1E1E2E</Color>
-    <Color x:Key="BgPanel">#252536</Color>
-    <Color x:Key="BgCard">#2D2D44</Color>
-    <Color x:Key="Accent">#7C4DFF</Color>
-    <Color x:Key="AccentHover">#9575FF</Color>
-    <Color x:Key="TextPrimary">#E8E8F0</Color>
-    <Color x:Key="TextSecondary">#9898B0</Color>
-    <Color x:Key="Border">#3D3D5C</Color>
+    <Color x:Key="BgDark">#F9FAFB</Color>
+    <Color x:Key="BgPanel">#F3F4F6</Color>
+    <Color x:Key="BgCard">#FFFFFF</Color>
+    <Color x:Key="Accent">#0000C6</Color>
+    <Color x:Key="AccentHover">#4D81E7</Color>
+    <Color x:Key="TextPrimary">#1F2937</Color>
+    <Color x:Key="TextSecondary">#6C7278</Color>
+    <Color x:Key="Border">#EDF1F3</Color>
     <Color x:Key="Success">#4CAF50</Color>
     <Color x:Key="Danger">#F44336</Color>
 
@@ -56,9 +56,11 @@
     <Style x:Key="SecondaryButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
         <Setter Property="Background" Value="{StaticResource BgCardBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
         <Style.Triggers>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="#3A3A55"/>
+                <Setter Property="Background" Value="{StaticResource BgPanelBrush}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -74,7 +76,7 @@
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="RowBackground" Value="{StaticResource BgCardBrush}"/>
-        <Setter Property="AlternatingRowBackground" Value="#32324A"/>
+        <Setter Property="AlternatingRowBackground" Value="{StaticResource BgPanelBrush}"/>
         <Setter Property="GridLinesVisibility" Value="Horizontal"/>
         <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource BorderBrush}"/>
         <Setter Property="HeadersVisibility" Value="Column"/>
@@ -86,7 +88,7 @@
     </Style>
 
     <Style TargetType="DataGridColumnHeader">
-        <Setter Property="Background" Value="#32324A"/>
+        <Setter Property="Background" Value="{StaticResource BgPanelBrush}"/>
         <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
         <Setter Property="Padding" Value="10,8"/>
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
@@ -101,8 +103,8 @@
         <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
         <Style.Triggers>
             <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="#4A3A7A"/>
-                <Setter Property="Foreground" Value="White"/>
+                <Setter Property="Background" Value="#E3F2FD"/>
+                <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -129,10 +131,10 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsSelected" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#4A3A7A"/>
+                            <Setter TargetName="Bd" Property="Background" Value="#E3F2FD"/>
                         </Trigger>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="#3A3A55"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgPanelBrush}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

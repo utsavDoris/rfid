@@ -15,7 +15,8 @@ namespace RfidScanner.ChainwayBridge;
 /// </summary>
 public sealed class ChainwayReader : IDisposable
 {
-    private readonly RFIDWithUHFBEL _reader = RFIDWithUHFBEL.GetInstance();
+    private RFIDWithUHFBEL? _readerInstance;
+    private RFIDWithUHFBEL Reader => _readerInstance ?? (_readerInstance = RFIDWithUHFBEL.GetInstance());
     private readonly Action<Action> _invoke;
     private readonly object _scanLock = new();
     private readonly List<ScannedDevice> _scanResults = new();
@@ -23,6 +24,8 @@ public sealed class ChainwayReader : IDisposable
     private TaskCompletionSource<bool>? _connectTcs;
     private volatile bool _inventoryRunning;
     private volatile bool _scanning;
+    private bool _epcTidModeConfigured;
+    private string? _connectedDeviceId;
     private Thread? _readThread;
     private bool _disposed;
 
@@ -33,9 +36,12 @@ public sealed class ChainwayReader : IDisposable
     public event Action<ScannedTag>? TagReceived;
     public event Action<string>? StatusChanged;
 
-    public bool IsConnected { get; private set; }
-    public bool IsInventoryRunning { get; private set; }
+    public bool IsConnected => _isConnected;
+    public bool IsInventoryRunning => _isInventoryRunning;
     public bool IsScanning => _scanning;
+
+    private volatile bool _isConnected;
+    private volatile bool _isInventoryRunning;
 
     public ChainwayReader(Action<Action>? invokeOnUi = null)
     {
@@ -52,10 +58,16 @@ public sealed class ChainwayReader : IDisposable
                 if (_scanning)
                     return;
 
+                if (IsConnected)
+                {
+                    StatusChanged?.Invoke("Disconnect the reader before scanning for devices.");
+                    return;
+                }
+
                 _scanResults.Clear();
                 _scanning = true;
                 StatusChanged?.Invoke("Scanning BLE devices...");
-                _reader.StartBleDeviceWatcher(OnScanDevice);
+                Reader.StartBleDeviceWatcher(OnScanDevice);
             }
         });
     }
@@ -70,7 +82,7 @@ public sealed class ChainwayReader : IDisposable
                 if (!_scanning)
                     return;
 
-                _reader.StopBleDeviceWatcher();
+                Reader.StopBleDeviceWatcher();
                 FinishScan($"Scan stopped. Found {_scanResults.Count} device(s).");
             }
         });
@@ -118,7 +130,7 @@ public sealed class ChainwayReader : IDisposable
                 if (removed != null)
                 {
                     _scanResults.Remove(removed);
-                    DeviceRemoved?.Invoke(removeId);
+                    DeviceRemoved?.Invoke(removeId!);
                 }
             }
         }
@@ -137,7 +149,7 @@ public sealed class ChainwayReader : IDisposable
                     if (!_scanning)
                         return;
 
-                    _reader.StopBleDeviceWatcher();
+                    Reader.StopBleDeviceWatcher();
                     FinishScan($"Scan complete. Found {_scanResults.Count} device(s).");
                 }
             });
@@ -154,31 +166,62 @@ public sealed class ChainwayReader : IDisposable
 
         _invoke(() =>
         {
+            EnsureScanStopped();
+
             _connectTcs = tcs;
-            _reader.Connect(deviceId, OnConnectionStatusChanged);
+            _connectedDeviceId = deviceId;
+            _epcTidModeConfigured = false;
+            Reader.Connect(deviceId, OnConnectionStatusChanged);
         });
 
         return tcs.Task;
     }
 
+    private void EnsureScanStopped()
+    {
+        if (!_scanning)
+            return;
+
+        try
+        {
+            Reader.StopBleDeviceWatcher();
+        }
+        catch
+        {
+            // ignore
+        }
+
+        _scanning = false;
+    }
+
     private void OnConnectionStatusChanged(BluetoothConnectionStatus status, BluetoothLEDevice? device)
+    {
+        _invoke(() => HandleConnectionStatusChanged(status, device));
+    }
+
+    private void HandleConnectionStatusChanged(BluetoothConnectionStatus status, BluetoothLEDevice? device)
     {
         if (status == BluetoothConnectionStatus.Connected)
         {
-            IsConnected = true;
+            _isConnected = true;
             ConnectionChanged?.Invoke(true);
+            StatusChanged?.Invoke("Reader connected.");
             _connectTcs?.TrySetResult(true);
             _connectTcs = null;
         }
         else if (status == BluetoothConnectionStatus.Disconnected)
         {
-            var wasConnected = IsConnected;
-            IsConnected = false;
-            IsInventoryRunning = false;
-            _inventoryRunning = false;
+            var wasConnected = _isConnected;
+            StopInventoryInternal();
+
+            _isConnected = false;
+            _epcTidModeConfigured = false;
 
             if (wasConnected)
+            {
                 ConnectionChanged?.Invoke(false);
+                StatusChanged?.Invoke("Reader disconnected unexpectedly. Reconnect if needed.");
+            }
 
             if (_connectTcs != null)
             {
@@ -196,16 +239,21 @@ public sealed class ChainwayReader : IDisposable
             if (!IsConnected)
                 throw new InvalidOperationException("Not connected.");
 
-            StopInventoryInternal();
+            if (IsInventoryRunning)
+                return;
 
-            if (!_reader.SetEPCTIDMode())
-                throw new InvalidOperationException("SetEPCTIDMode failed — reader may not support EPC+TID mode.");
+            if (!_epcTidModeConfigured)
+            {
+                if (!Reader.SetEPCTIDMode())
+                    throw new InvalidOperationException("SetEPCTIDMode failed — reader may not support EPC+TID mode.");
+                _epcTidModeConfigured = true;
+            }
 
-            if (!_reader.startInventoryTag())
+            if (!Reader.startInventoryTag())
                 throw new InvalidOperationException("startInventoryTag failed.");
 
             _inventoryRunning = true;
-            IsInventoryRunning = true;
+            _isInventoryRunning = true;
             _readThread = new Thread(ReadTagLoop) { IsBackground = true, Name = "ChainwayTagReader" };
             _readThread.Start();
         });
@@ -214,31 +262,42 @@ public sealed class ChainwayReader : IDisposable
     /// <summary>InventoryForm_EPCTIDUSER.readTag — EPC+TID buffer read.</summary>
     private void ReadTagLoop()
     {
-        while (_inventoryRunning)
+        while (_inventoryRunning && IsConnected)
         {
-            var tags = _reader.ReadTagFromBuffer_EPCTIDUSER();
-            if (tags != null && tags.Count > 0)
+            try
             {
-                foreach (var tag in tags)
+                var tags = Reader.ReadTagFromBuffer_EPCTIDUSER();
+                if (tags != null && tags.Count > 0)
                 {
-                    if (string.IsNullOrWhiteSpace(tag.Epc) && string.IsNullOrWhiteSpace(tag.Tid))
-                        continue;
-
-                    var rssiRaw = tag.Rssi ?? string.Empty;
-                    var rssi = ParseRssi(rssiRaw);
-                    TagReceived?.Invoke(new ScannedTag
+                    foreach (var tag in tags)
                     {
-                        Epc = tag.Epc ?? string.Empty,
-                        RssiRaw = rssiRaw,
-                        Rssi = rssi,
-                        Tid = tag.Tid ?? string.Empty,
-                        User = tag.User ?? string.Empty
-                    });
+                        if (!_inventoryRunning || !IsConnected)
+                            break;
+
+                        if (string.IsNullOrWhiteSpace(tag.Epc) && string.IsNullOrWhiteSpace(tag.Tid))
+                            continue;
+
+                        var rssiRaw = tag.Rssi ?? string.Empty;
+                        var rssi = ParseRssi(rssiRaw);
+                        TagReceived?.Invoke(new ScannedTag
+                        {
+                            Epc = tag.Epc ?? string.Empty,
+                            RssiRaw = rssiRaw,
+                            Rssi = rssi,
+                            Tid = tag.Tid ?? string.Empty,
+                            User = tag.User ?? string.Empty
+                        });
+                    }
+                }
+                else
+                {
+                    Thread.Sleep(1);
                 }
             }
-            else
+            catch
             {
-                Thread.Sleep(1);
+                if (_inventoryRunning)
+                    Thread.Sleep(10);
             }
         }
     }
@@ -251,16 +310,21 @@ public sealed class ChainwayReader : IDisposable
 
     private void StopInventoryInternal()
     {
-        _inventoryRunning = false;
-        _readThread?.Join(500);
-        _readThread = null;
+        if (!IsInventoryRunning && (_readThread == null || !_readThread.IsAlive))
+            return;
 
-        if (IsConnected)
+        _inventoryRunning = false;
+
+        var thread = _readThread;
+        _readThread = null;
+        thread?.Join(1000);
+
+        if (IsConnected && IsInventoryRunning)
         {
             try
             {
                 Thread.Sleep(100);
-                _reader.stopInventoryTag();
+                Reader.stopInventoryTag();
             }
             catch
             {
@@ -268,7 +332,7 @@ public sealed class ChainwayReader : IDisposable
             }
         }
 
-        IsInventoryRunning = false;
+        _isInventoryRunning = false;
     }
 
     /// <summary>MainForm.btnDisConn_Click</summary>
@@ -277,10 +341,32 @@ public sealed class ChainwayReader : IDisposable
         _invoke(() =>
         {
             StopInventoryInternal();
-            try { _reader.DisConnect(); } catch { /* ignore */ }
-            IsConnected = false;
+            try { Reader.DisConnect(); } catch { /* ignore */ }
+            _isConnected = false;
+            _epcTidModeConfigured = false;
+            _connectedDeviceId = null;
             ConnectionChanged?.Invoke(false);
         });
+    }
+
+    public int GetPower()
+    {
+        int power = -1;
+        _invoke(() => 
+        {
+            if (IsConnected) power = Reader.GetPower();
+        });
+        return power;
+    }
+
+    public bool SetPower(int power)
+    {
+        bool success = false;
+        _invoke(() => 
+        {
+            if (IsConnected) success = Reader.SetPower(power);
+        });
+        return success;
     }
 
     public static bool IsChainwayName(string? name)
@@ -288,10 +374,10 @@ public sealed class ChainwayReader : IDisposable
         if (string.IsNullOrWhiteSpace(name))
             return false;
 
-        return name.IndexOf("Nordic_UART", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.IndexOf("Chainway", StringComparison.OrdinalIgnoreCase) >= 0
-            || name.Equals("R6", StringComparison.OrdinalIgnoreCase)
-            || name.StartsWith("R6 ", StringComparison.OrdinalIgnoreCase);
+        return name!.IndexOf("Nordic_UART", StringComparison.OrdinalIgnoreCase) >= 0
+            || name!.IndexOf("Chainway", StringComparison.OrdinalIgnoreCase) >= 0
+            || name!.Equals("R6", StringComparison.OrdinalIgnoreCase)
+            || name!.StartsWith("R6 ", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int ParseRssi(string? raw)
@@ -299,7 +385,7 @@ public sealed class ChainwayReader : IDisposable
         if (string.IsNullOrWhiteSpace(raw))
             return 0;
 
-        var cleaned = raw.Trim()
+        var cleaned = raw!.Trim()
             .Replace("dBm", string.Empty)
             .Replace("DBM", string.Empty)
             .Trim();

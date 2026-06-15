@@ -1,0 +1,67 @@
+<UserControl x:Class="RfidScanner.Views.Pages.DashboardPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+            <Border Background="{StaticResource BgPanelBrush}" CornerRadius="10" Padding="20" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="Welcome back"
+                               FontSize="14"
+                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <TextBlock Text="{Binding UserName}"
+                               FontSize="26"
+                               FontWeight="Bold"
+                               Foreground="{StaticResource AccentBrush}"
+                               Margin="0,4,0,8"/>
+                    <TextBlock Foreground="{StaticResource TextPrimaryBrush}" FontSize="13">
+                        <Run Text="{Binding CompanyName, Mode=OneWay}"/>
+                        <Run Text=" · "/>
+                        <Run Text="{Binding RoleName, Mode=OneWay}"/>
+                    </TextBlock>
+                    <TextBlock Text="Use the menu or tiles below. See FEATURE_PLAN.md for full roadmap."
+                               Foreground="{StaticResource TextSecondaryBrush}"
+                               FontSize="12"
+                               Margin="0,12,0,0"
+                               TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <TextBlock Text="Quick Actions"
+                       FontSize="16"
+                       FontWeight="SemiBold"
+                       Foreground="{StaticResource TextPrimaryBrush}"
+                       Margin="0,0,0,10"/>
+
+            <ItemsControl ItemsSource="{Binding QuickTiles}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <WrapPanel/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Margin="0,0,12,12"
+                                Padding="0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Command="{Binding DataContext.OpenTileCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                CommandParameter="{Binding}">
+                            <Border Background="{StaticResource BgPanelBrush}"
+                                    CornerRadius="10"
+                                    Width="220"
+                                    Height="120"
+                                    Padding="16">
+                                <StackPanel>
+                                    <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="15" Foreground="{StaticResource TextPrimaryBrush}"/>
+                                    <TextBlock Text="{Binding Subtitle}" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding Phase}" FontSize="11" Foreground="{StaticResource AccentBrush}" Margin="0,10,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

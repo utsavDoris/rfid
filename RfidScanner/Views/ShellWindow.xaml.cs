@@ -1,18 +1,19 @@
 using System;
 using System.Windows;
+using System.Windows.Controls;
 using RfidScanner.ViewModels;
 
 namespace RfidScanner.Views;
 
-public partial class MainWindow : Window
+public partial class ShellWindow : Window
 {
-    public MainWindow()
+    public ShellWindow()
     {
         InitializeComponent();
 
         try
         {
-            DataContext = new MainViewModel();
+            DataContext = new ShellViewModel();
         }
         catch (Exception ex)
         {
@@ -25,6 +26,12 @@ public partial class MainWindow : Window
         }
 
         Closed += OnClosed;
+    }
+
+    private void NavList_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (DataContext is ShellViewModel vm && NavList.SelectedItem is NavMenuItem item)
+            vm.NavigateTo(item.Id);
     }
 
     private void OnClosed(object? sender, EventArgs e)

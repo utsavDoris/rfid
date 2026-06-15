@@ -1,0 +1,244 @@
+<UserControl x:Class="RfidScanner.Views.Pages.ScannerPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:RfidScanner.Converters">
+
+    <UserControl.Resources>
+        <conv:RssiToColorConverter x:Key="RssiToColor"/>
+        <conv:InverseBoolToVisibilityConverter x:Key="InverseBoolToVis"/>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <Border Grid.Row="0"
+                Background="{StaticResource BgPanelBrush}"
+                CornerRadius="10"
+                Padding="16,12"
+                Margin="0,0,0,12">
+            <TextBlock Text="{Binding StatusMessage}"
+                       FontSize="13"
+                       Foreground="{StaticResource TextSecondaryBrush}"
+                       TextWrapping="Wrap"/>
+        </Border>
+
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Border Background="{StaticResource BgPanelBrush}"
+                    CornerRadius="10" Padding="14"
+                    Margin="0,0,8,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Text="Bluetooth Devices"
+                               FontSize="15" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               Margin="0,0,0,10"/>
+
+                    <Button Grid.Row="1"
+                            Command="{Binding ScanDevicesCommand}"
+                            Margin="0,0,0,10">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
+                                <Setter Property="Content" Value="Scan Devices"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsScanning}" Value="True">
+                                        <Setter Property="Content" Value="Stop Scan"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+
+                    <ListBox Grid.Row="2"
+                             ItemsSource="{Binding Devices}"
+                             SelectedItem="{Binding SelectedDevice}"
+                             Margin="0,0,0,10">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding DeviceLabel}" FontWeight="SemiBold"/>
+                                    <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}">
+                                        <Run Text="{Binding ConnectionType, Mode=OneWay}"/>
+                                        <Run Text=" · "/>
+                                        <Run Text="{Binding Mac, Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <StackPanel Grid.Row="3">
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="Tx Power:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,10,0"/>
+                            <Slider Grid.Column="1" Minimum="5" Maximum="30" Value="{Binding TransmitPower}" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1"/>
+                            <TextBlock Grid.Column="2" Text="{Binding TransmitPower, StringFormat='\{0\} dBm'}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Margin="6,0,6,0" FontSize="12" Width="45"/>
+                            <Button Grid.Column="3" Content="Set" Padding="8,2" Command="{Binding ApplyPowerCommand}" Style="{StaticResource SecondaryButton}"/>
+                        </Grid>
+
+                        <Button Content="Connect" Style="{StaticResource PrimaryButton}" Command="{Binding ConnectCommand}" Margin="0,0,0,6"/>
+                        <Button Content="▶ Start Scan" Style="{StaticResource PrimaryButton}" Command="{Binding StartInventoryCommand}" Margin="0,0,0,6"/>
+                        <Button Content="■ Stop Scan" Style="{StaticResource DangerButton}" Command="{Binding StopInventoryCommand}" Margin="0,0,0,6"/>
+                        <Button Content="Disconnect" Style="{StaticResource SecondaryButton}" Command="{Binding DisconnectCommand}" Margin="0,0,0,10"/>
+
+                        <Button Content="▶ Start Simulation"
+                                Style="{StaticResource PrimaryButton}"
+                                Command="{Binding StartSimulationCommand}"
+                                Margin="0,0,0,6"
+                                Visibility="{Binding IsSimulating, Converter={StaticResource InverseBoolToVis}}"/>
+                        <Button Content="■ Stop Simulation"
+                                Command="{Binding StopSimulationCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource DangerButton}">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSimulating}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Background="{StaticResource BgPanelBrush}" CornerRadius="10" Padding="14,10" Margin="0,0,0,6">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="120"/>
+                            <ColumnDefinition Width="30"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Search:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,10,0"/>
+                        <TextBox Grid.Column="1" Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}" Padding="6,4" Background="{StaticResource BgCardBrush}" Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="{StaticResource BgDarkBrush}" BorderThickness="1"/>
+                        <TextBlock Grid.Column="2" Text="Min RSSI:" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="20,0,10,0"/>
+                        <Slider Grid.Column="3" Minimum="-100" Maximum="-30" Value="{Binding MinRssiFilter}" VerticalAlignment="Center" IsSnapToTickEnabled="True" TickFrequency="1"/>
+                        <TextBlock Grid.Column="4" Text="{Binding MinRssiFilter}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Margin="6,0,0,0" FontSize="12"/>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="1" Background="{StaticResource BgPanelBrush}" CornerRadius="10" Padding="14,10" Margin="0,0,0,6">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <CheckBox Content="Cloud Sync" IsChecked="{Binding IsCloudSyncEnabled}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,10,0"/>
+                        <CheckBox Grid.Column="1" Content="Keyboard Wedge" IsChecked="{Binding IsKeyboardWedgeEnabled}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,10,0"/>
+                        <TextBlock Grid.Column="2" Text="API:" VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}" Margin="10,0,10,0"/>
+                        <TextBox Grid.Column="3" Text="{Binding ApiEndpoint, UpdateSourceTrigger=PropertyChanged}" Padding="6,4" Background="{StaticResource BgCardBrush}" Foreground="{StaticResource TextPrimaryBrush}" BorderBrush="{StaticResource BgDarkBrush}" BorderThickness="1"/>
+                        <TextBlock Grid.Column="4" Text="{Binding CloudSyncQueueSize, StringFormat='Q: \{0\}'}" VerticalAlignment="Center" Foreground="{StaticResource TextSecondaryBrush}" Margin="10,0,0,0" FontSize="12"/>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="2" Background="{StaticResource BgPanelBrush}" CornerRadius="10" Padding="14" Margin="0,0,0,6">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0" Margin="0,0,0,10">
+                            <TextBlock Text="Live Tags" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock HorizontalAlignment="Right" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12">
+                                <Run Text="{Binding LiveTagCount, Mode=OneWay}"/>
+                                <Run Text=" tags (auto-purge after 30s)"/>
+                            </TextBlock>
+                        </Grid>
+                        <DataGrid Grid.Row="1" ItemsSource="{Binding LiveTagsView}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="EPC" Binding="{Binding Epc}" Width="*"/>
+                                <DataGridTextColumn Header="TID" Binding="{Binding Tid}" Width="*"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding TagType}" Width="70"/>
+                                <DataGridTemplateColumn Header="RSSI" Width="80">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <Ellipse Width="8" Height="8" Margin="0,0,6,0" VerticalAlignment="Center" Fill="{Binding Rssi, Converter={StaticResource RssiToColor}}"/>
+                                                <TextBlock Text="{Binding RssiDisplay}" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="Reads" Binding="{Binding ReadCount}" Width="60"/>
+                                <DataGridTextColumn Header="Last Seen" Binding="{Binding LastSeen, StringFormat='HH:mm:ss'}" Width="80"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <Button Grid.Row="2" Content="Clear Live Tags" Style="{StaticResource SecondaryButton}" Command="{Binding ClearLiveTagsCommand}" HorizontalAlignment="Left" Margin="0,10,0,0"/>
+                    </Grid>
+                </Border>
+
+                <Border Grid.Row="3" Background="{StaticResource BgPanelBrush}" CornerRadius="10" Padding="14" Margin="0,6,0,0">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <Grid Grid.Row="0" Margin="0,0,0,10">
+                            <TextBlock Text="Scan History" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}"/>
+                            <TextBlock HorizontalAlignment="Right" Foreground="{StaticResource TextSecondaryBrush}" FontSize="12">
+                                <Run Text="{Binding TotalScanCount, Mode=OneWay}"/>
+                                <Run Text=" total scans"/>
+                            </TextBlock>
+                        </Grid>
+                        <DataGrid Grid.Row="1" ItemsSource="{Binding HistoryTagsView}">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="EPC" Binding="{Binding Epc}" Width="*"/>
+                                <DataGridTextColumn Header="TID" Binding="{Binding Tid}" Width="*"/>
+                                <DataGridTextColumn Header="Type" Binding="{Binding TagType}" Width="70"/>
+                                <DataGridTextColumn Header="RSSI" Binding="{Binding RssiDisplay}" Width="80"/>
+                                <DataGridTextColumn Header="Reads" Binding="{Binding ReadCount}" Width="60"/>
+                                <DataGridTextColumn Header="Scanned At" Binding="{Binding ScannedAt, StringFormat='yyyy-MM-dd HH:mm:ss'}" Width="150"/>
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,0">
+                            <Button Content="Export CSV" Style="{StaticResource PrimaryButton}" Command="{Binding ExportCsvCommand}" Margin="0,0,8,0"/>
+                            <Button Content="Clear History" Style="{StaticResource SecondaryButton}" Command="{Binding ClearHistoryCommand}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <TextBlock Grid.Row="2"
+                   Text="Chainway R6: power on device, click Scan Devices, select Nordic_UART_CW, then Connect"
+                   Foreground="{StaticResource TextSecondaryBrush}"
+                   FontSize="11"
+                   Margin="0,10,0,0"
+                   HorizontalAlignment="Center"/>
+    </Grid>
+</UserControl>

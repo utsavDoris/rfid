@@ -16,6 +16,7 @@ public class TagManager
 
     public ObservableCollection<RfidTag> LiveTags { get; } = new();
     public event Action<RfidTag>? TagAddedOrUpdated;
+    public event Action<RfidTag>? NewTagDiscovered;
 
     public void Start()
     {
@@ -35,6 +36,7 @@ public class TagManager
             return incoming;
 
         RfidTag result;
+        bool isNew = false;
 
         lock (_lock)
         {
@@ -64,9 +66,11 @@ public class TagManager
                 _liveTags[key] = tag;
                 RunOnUi(() => LiveTags.Insert(0, tag));
                 result = tag.Clone();
+                isNew = true;
             }
         }
 
+        if (isNew) NewTagDiscovered?.Invoke(result);
         TagAddedOrUpdated?.Invoke(result);
         return result;
     }
@@ -112,6 +116,6 @@ public class TagManager
         if (dispatcher == null || dispatcher.CheckAccess())
             action();
         else
-            dispatcher.Invoke(action);
+            dispatcher.BeginInvoke(action);
     }
 }
