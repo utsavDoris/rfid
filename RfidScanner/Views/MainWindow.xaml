@@ -36,15 +36,22 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <StackPanel>
-                    <TextBlock Text="Acuris Desktop"
-                               FontSize="22" FontWeight="Bold"
-                               Foreground="{StaticResource AccentBrush}"/>
-                    <TextBlock Text="{Binding StatusMessage}"
-                               FontSize="13"
-                               Foreground="{StaticResource TextSecondaryBrush}"
-                               Margin="0,4,0,0"
-                               TextWrapping="Wrap"/>
+                <StackPanel Orientation="Horizontal">
+                    <Image Source="pack://application:,,,/Assets/AppLogo.png"
+                           Height="36"
+                           Stretch="Uniform"
+                           Margin="0,0,12,0"
+                           VerticalAlignment="Center"/>
+                    <StackPanel>
+                        <TextBlock Text="Acuris Desktop"
+                                   FontSize="22" FontWeight="Bold"
+                                   Foreground="{StaticResource AccentBrush}"/>
+                        <TextBlock Text="{Binding StatusMessage}"
+                                   FontSize="13"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Margin="0,4,0,0"
+                                   TextWrapping="Wrap"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
@@ -68,9 +75,6 @@
                                             <DataTrigger Binding="{Binding IsInventoryRunning}" Value="True">
                                                 <Setter Property="Fill" Value="#4CAF50"/>
                                             </DataTrigger>
-                                            <DataTrigger Binding="{Binding IsSimulating}" Value="True">
-                                                <Setter Property="Fill" Value="#FFC107"/>
-                                            </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
                                 </Ellipse.Style>
@@ -92,26 +96,6 @@
                             </TextBlock>
                         </StackPanel>
                     </Border>
-
-                    <Button Content="▶ Start Simulation"
-                            Style="{StaticResource PrimaryButton}"
-                            Command="{Binding StartSimulationCommand}"
-                            Margin="0,0,6,0"
-                            Visibility="{Binding IsSimulating, Converter={StaticResource InverseBoolToVis}}"/>
-                    <Button Content="■ Stop Simulation"
-                            Command="{Binding StopSimulationCommand}"
-                            Margin="0,0,6,0">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource DangerButton}">
-                                <Setter Property="Visibility" Value="Collapsed"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsSimulating}" Value="True">
-                                        <Setter Property="Visibility" Value="Visible"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
                 </StackPanel>
             </Grid>
         </Border>

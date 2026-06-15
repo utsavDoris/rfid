@@ -42,10 +42,11 @@
                 </Grid.RowDefinitions>
 
                 <StackPanel Grid.Row="0" Margin="8,8,8,16">
-                    <TextBlock Text="Acuris"
-                               FontSize="22"
-                               FontWeight="Bold"
-                               Foreground="{StaticResource AccentBrush}"/>
+                    <Image Source="pack://application:,,,/Assets/AppLogo.png"
+                           Height="44"
+                           Stretch="Uniform"
+                           HorizontalAlignment="Left"
+                           Margin="0,0,0,8"/>
                     <TextBlock Text="Desktop"
                                FontSize="12"
                                Foreground="{StaticResource TextSecondaryBrush}"/>
@@ -94,7 +95,7 @@
                 </ListBox>
 
                 <TextBlock Grid.Row="2"
-                           Text="FEATURE_PLAN.md"
+                           Text="Acuris Inventory"
                            FontSize="10"
                            Foreground="{StaticResource TextSecondaryBrush}"
                            Margin="8"
@@ -120,7 +121,8 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <TextBlock Text="{Binding PageTitle}"
+                    <TextBlock Grid.Column="0"
+                               Text="{Binding PageTitle}"
                                FontSize="20"
                                FontWeight="Bold"
                                Foreground="{StaticResource TextPrimaryBrush}"

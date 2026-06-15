@@ -10,6 +10,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="BLEDeviceAPI">
       <HintPath>Libs\BLEDeviceAPI.dll</HintPath>
       <Private>true</Private>

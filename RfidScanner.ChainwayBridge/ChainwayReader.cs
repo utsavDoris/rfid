@@ -4,9 +4,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BLEDeviceAPI;
+using System.Windows.Forms;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Enumeration;
-using Windows.Foundation;
 
 namespace RfidScanner.ChainwayBridge;
 
@@ -36,6 +36,10 @@ public sealed class ChainwayReader : IDisposable
     public event Action<bool>? ConnectionChanged;
     public event Action<ScannedTag>? TagReceived;
     public event Action<string>? StatusChanged;
+    public event Action? HardwareTriggerPressed;
+
+    private object? _triggerContext;
+    private Form? _triggerForm;
 
     public bool IsConnected => _isConnected;
     public bool IsInventoryRunning => _isInventoryRunning;
@@ -165,51 +169,7 @@ public sealed class ChainwayReader : IDisposable
         }
     }
 
-    /// <summary>Load devices already paired in Windows Bluetooth Settings (recommended).</summary>
-    public Task<IReadOnlyList<ScannedDevice>> LoadPairedDevicesAsync()
-    {
-        var tcs = new TaskCompletionSource<IReadOnlyList<ScannedDevice>>();
-        _invoke(() => _ = LoadPairedDevicesCoreAsync(tcs));
-        return tcs.Task;
-    }
-
-    private async Task LoadPairedDevicesCoreAsync(TaskCompletionSource<IReadOnlyList<ScannedDevice>> tcs)
-    {
-        try
-        {
-            var selector = BluetoothLEDevice.GetDeviceSelectorFromPairingState(true);
-            var infos = await AwaitWinRt(DeviceInformation.FindAllAsync(selector)).ConfigureAwait(true);
-
-            var list = new List<ScannedDevice>();
-            foreach (var info in infos)
-            {
-                var name = string.IsNullOrWhiteSpace(info.Name) ? "Unknown" : info.Name;
-                if (!IsChainwayName(name))
-                    continue;
-
-                var mac = info.Id.Length >= 17
-                    ? info.Id.Substring(info.Id.Length - 17, 17)
-                    : info.Id;
-
-                list.Add(new ScannedDevice
-                {
-                    Name = name,
-                    DeviceId = info.Id,
-                    Mac = mac,
-                    IsChainway = true,
-                    IsSystemPaired = true
-                });
-            }
-
-            tcs.TrySetResult(list);
-        }
-        catch (Exception ex)
-        {
-            tcs.TrySetException(ex);
-        }
-    }
-
-    /// <summary>MainForm.btnConn_Click — Connect using Windows paired device Id.</summary>
+    /// <summary>MainForm.btnConn_Click — Connect using BLE device Id from scan.</summary>
     public Task ConnectAsync(string deviceId)
     {
         if (string.IsNullOrWhiteSpace(deviceId))
@@ -217,50 +177,25 @@ public sealed class ChainwayReader : IDisposable
 
         var tcs = new TaskCompletionSource<bool>();
 
-        _invoke(() => _ = ConnectCoreAsync(deviceId, tcs));
+        _invoke(() =>
+        {
+            try
+            {
+                EnsureScanStopped();
+
+                _connectTcs = tcs;
+                _connectedDeviceId = deviceId;
+                _epcTidModeConfigured = false;
+                Reader.Connect(deviceId, OnConnectionStatusChanged);
+            }
+            catch (Exception ex)
+            {
+                _connectTcs = null;
+                tcs.TrySetException(ex);
+            }
+        });
 
         return tcs.Task;
-    }
-
-    private async Task ConnectCoreAsync(string deviceId, TaskCompletionSource<bool> tcs)
-    {
-        try
-        {
-            EnsureScanStopped();
-
-            StatusChanged?.Invoke("Preparing system Bluetooth connection...");
-            await EnsureSystemPairedAsync(deviceId).ConfigureAwait(true);
-
-            _connectTcs = tcs;
-            _connectedDeviceId = deviceId;
-            _epcTidModeConfigured = false;
-            Reader.Connect(deviceId, OnConnectionStatusChanged);
-        }
-        catch (Exception ex)
-        {
-            _connectTcs = null;
-            tcs.TrySetException(ex);
-        }
-    }
-
-    private static async Task EnsureSystemPairedAsync(string deviceId)
-    {
-        var info = await AwaitWinRt(DeviceInformation.CreateFromIdAsync(deviceId)).ConfigureAwait(true);
-        if (info.Pairing == null || info.Pairing.IsPaired)
-            return;
-
-        if (!info.Pairing.CanPair)
-            throw new InvalidOperationException(
-                "R6 is not paired with Windows. Open Settings → Bluetooth, pair Nordic_UART_CW, then click Load Paired.");
-
-        var result = await AwaitWinRt(info.Pairing.PairAsync()).ConfigureAwait(true);
-
-        if (result.Status != DevicePairingResultStatus.Paired &&
-            result.Status != DevicePairingResultStatus.AlreadyPaired)
-        {
-            throw new InvalidOperationException(
-                $"Windows pairing failed ({result.Status}). Pair the R6 in Windows Bluetooth Settings first.");
-        }
     }
 
     private void EnsureScanStopped()
@@ -290,6 +225,7 @@ public sealed class ChainwayReader : IDisposable
         if (status == BluetoothConnectionStatus.Connected)
         {
             _isConnected = true;
+            EnableHardwareTrigger();
             ConnectionChanged?.Invoke(true);
             StatusChanged?.Invoke("Reader connected.");
             _connectTcs?.TrySetResult(true);
@@ -299,6 +235,7 @@ public sealed class ChainwayReader : IDisposable
         {
             var wasConnected = _isConnected;
             StopInventoryInternal();
+            DisableHardwareTrigger();
 
             _isConnected = false;
             _epcTidModeConfigured = false;
@@ -427,6 +364,7 @@ public sealed class ChainwayReader : IDisposable
         _invoke(() =>
         {
             StopInventoryInternal();
+            DisableHardwareTrigger();
             try { Reader.DisConnect(); } catch { /* ignore */ }
             _isConnected = false;
             _epcTidModeConfigured = false;
@@ -451,6 +389,42 @@ public sealed class ChainwayReader : IDisposable
         _invoke(() => 
         {
             if (IsConnected) success = Reader.SetPower(power);
+        });
+        return success;
+    }
+
+    /// <summary>InventoryForm SetKeyDownCallBack — R6 physical trigger toggles scan.</summary>
+    public void EnableHardwareTrigger()
+    {
+        _invoke(() =>
+        {
+            _triggerForm ??= new Form { ShowInTaskbar = false, WindowState = FormWindowState.Minimized, Opacity = 0 };
+            _triggerContext = _triggerForm;
+            Reader.SetKeyDownCallBack(OnHardwareKeyDown, _triggerForm);
+        });
+    }
+
+    public void DisableHardwareTrigger()
+    {
+        _invoke(() =>
+        {
+            try { Reader.SetKeyDownCallBack(null, null); } catch { /* ignore */ }
+        });
+    }
+
+    private void OnHardwareKeyDown(int keyCode)
+    {
+        _invoke(() => HardwareTriggerPressed?.Invoke());
+    }
+
+    /// <summary>SettingsForm SetBeep — mute/unmute R6 reader beep on tag read.</summary>
+    public bool SetBeep(bool enabled)
+    {
+        bool success = false;
+        _invoke(() =>
+        {
+            if (IsConnected)
+                success = Reader.SetBeep(enabled);
         });
         return success;
     }
@@ -488,23 +462,6 @@ public sealed class ChainwayReader : IDisposable
         return 0;
     }
 
-    private static Task<T> AwaitWinRt<T>(IAsyncOperation<T> operation)
-    {
-        var tcs = new TaskCompletionSource<T>();
-        operation.Completed = (op, _) =>
-        {
-            try
-            {
-                tcs.TrySetResult(op.GetResults());
-            }
-            catch (Exception ex)
-            {
-                tcs.TrySetException(ex);
-            }
-        };
-        return tcs.Task;
-    }
-
     public void Dispose()
     {
         if (_disposed) return;
@@ -521,6 +478,13 @@ public sealed class ChainwayReader : IDisposable
         }
 
         Disconnect();
+
+        _invoke(() =>
+        {
+            _triggerForm?.Dispose();
+            _triggerForm = null;
+            _triggerContext = null;
+        });
     }
 }
 

@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -23,6 +21,7 @@ public class BluetoothService : IDisposable
     public event Action<RfidTag>? TagReceived;
     public event Action<string>? StatusChanged;
     public event Action<bool>? ConnectionChanged;
+    public event Action? HardwareTriggerPressed;
 
     public bool IsConnected => _reader.IsConnected;
     public bool IsInventoryRunning => _reader.IsInventoryRunning;
@@ -37,6 +36,7 @@ public class BluetoothService : IDisposable
         _reader.DeviceRemoved += id => DeviceRemoved?.Invoke(id);
         _reader.ScanCompleted += () => ScanCompleted?.Invoke();
         _reader.ConnectionChanged += connected => ConnectionChanged?.Invoke(connected);
+        _reader.HardwareTriggerPressed += () => HardwareTriggerPressed?.Invoke();
         _reader.TagReceived += tag => TagReceived?.Invoke(
             RfidTagMapper.FromScanned(tag.Epc, tag.Tid, tag.User, tag.RssiRaw));
     }
@@ -61,30 +61,7 @@ public class BluetoothService : IDisposable
             Address = device.DeviceId,
             Mac = device.Mac,
             IsBle = true,
-            IsChainway = device.IsChainway,
-            IsSystemPaired = device.IsSystemPaired
-        });
-    }
-
-    public async Task<IReadOnlyList<BluetoothDeviceInfo>> LoadPairedDevicesAsync()
-    {
-        var paired = await _reader.LoadPairedDevicesAsync().ConfigureAwait(true);
-        return paired.Select(d => new BluetoothDeviceInfo
-        {
-            Name = d.Name,
-            Address = d.DeviceId,
-            Mac = d.Mac,
-            IsBle = true,
-            IsChainway = d.IsChainway,
-            IsSystemPaired = true
-        }).ToList();
-    }
-
-    public static void OpenWindowsBluetoothSettings()
-    {
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:bluetooth")
-        {
-            UseShellExecute = true
+            IsChainway = device.IsChainway
         });
     }
 
@@ -141,6 +118,8 @@ public class BluetoothService : IDisposable
     public int GetPower() => _reader.GetPower();
 
     public bool SetPower(int power) => _reader.SetPower(power);
+
+    public bool SetBeep(bool enabled) => _reader.SetBeep(enabled);
 
     public void Dispose()
     {

@@ -17,6 +17,7 @@ public class TagManager
     public ObservableCollection<RfidTag> LiveTags { get; } = new();
     public event Action<RfidTag>? TagAddedOrUpdated;
     public event Action<RfidTag>? NewTagDiscovered;
+    public event Action? LiveTagsChanged;
 
     public void Start()
     {
@@ -80,7 +81,11 @@ public class TagManager
         lock (_lock)
         {
             _liveTags.Clear();
-            RunOnUi(() => LiveTags.Clear());
+            RunOnUi(() =>
+            {
+                LiveTags.Clear();
+                LiveTagsChanged?.Invoke();
+            });
         }
     }
 
@@ -107,6 +112,8 @@ public class TagManager
                 if (item != null)
                     LiveTags.Remove(item);
             }
+
+            LiveTagsChanged?.Invoke();
         });
     }
 

@@ -3,10 +3,10 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using RfidScanner.Core;
@@ -21,21 +21,18 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private readonly TagManager _tagManager = new();
     private readonly ScanDatabase _database = new();
     private readonly CloudSyncService _cloudSync = new();
-    private readonly Random _random = new();
-    private Timer? _simulationTimer;
+    private DispatcherTimer? _scanDurationTimer;
+    private DateTime _scanStartTime;
     private bool _disposed;
 
     [ObservableProperty]
-    private string _statusMessage = "Ready — scan for devices or start simulation.";
+    private string _statusMessage = "Ready — scan for devices.";
 
     [ObservableProperty]
     private bool _isConnected;
 
     [ObservableProperty]
     private bool _isScanning;
-
-    [ObservableProperty]
-    private bool _isSimulating;
 
     [ObservableProperty]
     private bool _isInventoryRunning;
@@ -70,6 +67,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private int _transmitPower = 30;
 
+    [ObservableProperty]
+    private bool _isSoundMuted;
+
+    [ObservableProperty]
+    private int _uniqueTagCount;
+
+    [ObservableProperty]
+    private int _totalReadCount;
+
+    [ObservableProperty]
+    private string _tagStatsDisplay = "Total: 0, Unique: 0";
+
+    [ObservableProperty]
+    private string _scanDurationDisplay = "0s";
+
     public ObservableCollection<BluetoothDeviceInfo> Devices { get; } = new();
     public ObservableCollection<RfidTag> LiveTags => _tagManager.LiveTags;
     public ObservableCollection<RfidTag> HistoryTags { get; } = new();
@@ -78,6 +90,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     public ICollectionView LiveTagsView { get; }
     public ICollectionView HistoryTagsView { get; }
+
+    public bool ShowTagPlaceholder => !IsInventoryRunning && LiveTags.Count == 0;
+    public bool ShowScanProgress => IsInventoryRunning && LiveTags.Count == 0;
+    public string ConnectionStatusText => IsInventoryRunning ? "Scanning" : IsConnected ? "Connected" : "Disconnected";
 
     public MainViewModel()
     {
@@ -95,9 +111,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
         _tagManager.TagAddedOrUpdated += OnTagProcessed;
         _tagManager.NewTagDiscovered += OnNewTagDiscovered;
+        _tagManager.LiveTagsChanged += () => RunOnUi(RefreshLiveStats);
         _tagManager.Start();
         LoadHistory();
-        _ = LoadPairedDevicesAsync();
     }
 
     private void InitializeBluetooth()
@@ -116,10 +132,17 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 if (!connected)
                 {
                     IsInventoryRunning = false;
+                    StopScanDurationTimer();
                     StatusMessage = "Reader disconnected — select device and connect again.";
                 }
+                else
+                {
+                    StatusMessage = "R6 connected. Press Start Scan or device trigger.";
+                }
+                NotifyTagPanelState();
                 RefreshCommands();
             });
+            _bluetooth.HardwareTriggerPressed += () => RunOnUi(() => _ = ToggleInventoryFromTriggerAsync());
         }
         catch (Exception ex)
         {
@@ -166,52 +189,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
         var userAdminWindow = new RfidScanner.Views.UserManagementWindow();
         userAdminWindow.Owner = window;
         userAdminWindow.ShowDialog();
-    }
-
-    [RelayCommand]
-    private async Task LoadPairedDevicesAsync()
-    {
-        if (_bluetooth == null)
-        {
-            StatusMessage = "BLE reader is not available.";
-            return;
-        }
-
-        if (IsConnected)
-        {
-            StatusMessage = "Disconnect the reader before loading devices.";
-            return;
-        }
-
-        if (IsScanning)
-            await _bluetooth.StopScanAsync();
-
-        try
-        {
-            StatusMessage = "Loading Windows paired Bluetooth devices...";
-            var paired = await _bluetooth.LoadPairedDevicesAsync();
-
-            Devices.Clear();
-            foreach (var device in paired)
-                Devices.Add(device);
-
-            SelectedDevice = Devices.FirstOrDefault(d => d.IsChainway) ?? Devices.FirstOrDefault();
-
-            StatusMessage = Devices.Count > 0
-                ? $"Found {Devices.Count} paired R6 device(s). Click Connect here — do not use the Windows Bluetooth popup."
-                : "No paired R6 found. Click 'Windows Bluetooth' to pair Nordic_UART_CW, then Load Paired again.";
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Could not load paired devices: {ex.Message}";
-        }
-    }
-
-    [RelayCommand]
-    private void OpenBluetoothSettings()
-    {
-        BluetoothService.OpenWindowsBluetoothSettings();
-        StatusMessage = "Pair Nordic_UART_CW in Windows Bluetooth, then click Load Paired (do not Connect from Windows).";
     }
 
     [RelayCommand]
@@ -293,7 +270,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (IsScanning)
                 await bluetooth.StopScanAsync();
 
-            StatusMessage = $"Connecting via system Bluetooth to {SelectedDevice.DeviceLabel}...";
+            StatusMessage = $"Connecting to {SelectedDevice.DeviceLabel}...";
             await bluetooth.ConnectAsync(SelectedDevice);
 
             if (!bluetooth.IsConnected)
@@ -302,7 +279,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var pwr = bluetooth.GetPower();
             if (pwr > 0) TransmitPower = pwr;
 
-            // Let the Windows BLE link stabilize before inventory.
+            ApplyReaderBeep();
+
             await Task.Delay(800).ConfigureAwait(true);
 
             if (!bluetooth.IsConnected)
@@ -311,17 +289,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            if (bluetooth.IsChainwayDevice)
-            {
-                StatusMessage = "R6 connected. Starting inventory...";
-                await StartInventoryAsync();
-            }
+            StatusMessage = "R6 connected. Press trigger on device or click Start Scan.";
         }
         catch (Exception ex)
         {
             StatusMessage = $"Connection failed: {ex.Message}";
             IsConnected = false;
         }
+    }
+
+    private async Task ToggleInventoryFromTriggerAsync()
+    {
+        if (!IsConnected)
+            return;
+
+        if (IsInventoryRunning)
+            await StopInventoryAsync();
+        else
+            await StartInventoryAsync();
     }
 
     [RelayCommand(CanExecute = nameof(CanStartInventory))]
@@ -331,7 +316,11 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             await RequireBluetooth().StartInventoryAsync();
             IsInventoryRunning = true;
-            StatusMessage = "Scanning for RFID tags — hold R6 near tags.";
+            _scanStartTime = DateTime.Now;
+            ScanDurationDisplay = "0s";
+            StartScanDurationTimer();
+            NotifyTagPanelState();
+            StatusMessage = "Scanning — press R6 trigger or Stop Scan to end.";
         }
         catch (Exception ex)
         {
@@ -351,7 +340,9 @@ public partial class MainViewModel : ObservableObject, IDisposable
         {
             await RequireBluetooth().StopInventoryAsync();
             IsInventoryRunning = false;
-            StatusMessage = "Scan stopped.";
+            StopScanDurationTimer();
+            NotifyTagPanelState();
+            StatusMessage = "Scan stopped. Press Start Scan or device trigger to resume.";
         }
         catch (Exception ex)
         {
@@ -363,10 +354,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
-    private bool CanStartInventory() => IsConnected && !IsInventoryRunning && !IsSimulating;
+    private bool CanStartInventory() => IsConnected && !IsInventoryRunning;
     private bool CanStopInventory() => IsConnected && IsInventoryRunning;
 
-    private bool CanConnect() => SelectedDevice != null && !IsConnected && !IsScanning && !IsSimulating;
+    private bool CanConnect() => SelectedDevice != null && !IsConnected && !IsScanning;
 
     [RelayCommand(CanExecute = nameof(CanSetPower))]
     private void ApplyPower()
@@ -385,6 +376,27 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     private bool CanSetPower() => IsConnected && !IsInventoryRunning;
+
+    [RelayCommand(CanExecute = nameof(CanToggleSound))]
+    private void ToggleSound()
+    {
+        IsSoundMuted = !IsSoundMuted;
+    }
+
+    private bool CanToggleSound() => IsConnected;
+
+    partial void OnIsSoundMutedChanged(bool value) => ApplyReaderBeep();
+
+    private void ApplyReaderBeep()
+    {
+        if (!IsConnected || _bluetooth == null)
+            return;
+
+        if (_bluetooth.SetBeep(!IsSoundMuted))
+            StatusMessage = IsSoundMuted ? "Reader beep muted." : "Reader beep unmuted.";
+        else
+            StatusMessage = "Could not change reader beep setting.";
+    }
 
     public async Task DisconnectReaderAsync()
     {
@@ -410,33 +422,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
     private bool CanDisconnect() => IsConnected;
 
     [RelayCommand]
-    private void StartSimulation()
-    {
-        if (IsSimulating) return;
-
-        IsSimulating = true;
-        StatusMessage = "Simulation running — generating fake RFID tags.";
-        _simulationTimer = new Timer(GenerateSimulatedTag, null, 0, 800);
-        RefreshCommands();
-    }
-
-    [RelayCommand]
-    private void StopSimulation()
-    {
-        if (!IsSimulating) return;
-
-        _simulationTimer?.Dispose();
-        _simulationTimer = null;
-        IsSimulating = false;
-        StatusMessage = "Simulation stopped.";
-        RefreshCommands();
-    }
-
-    [RelayCommand]
     private void ClearLiveTags()
     {
         _tagManager.Clear();
-        LiveTagCount = 0;
+        RefreshLiveStats();
         StatusMessage = "Live tag list cleared.";
     }
 
@@ -467,9 +456,24 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     partial void OnSelectedDeviceChanged(BluetoothDeviceInfo? value) => RefreshCommands();
     partial void OnIsScanningChanged(bool value) => RefreshCommands();
-    partial void OnIsConnectedChanged(bool value) => RefreshCommands();
-    partial void OnIsSimulatingChanged(bool value) => RefreshCommands();
-    partial void OnIsInventoryRunningChanged(bool value) => RefreshCommands();
+    partial void OnIsConnectedChanged(bool value)
+    {
+        RefreshCommands();
+        NotifyTagPanelState();
+    }
+
+    partial void OnIsInventoryRunningChanged(bool value)
+    {
+        RefreshCommands();
+        NotifyTagPanelState();
+    }
+
+    private void NotifyTagPanelState()
+    {
+        OnPropertyChanged(nameof(ShowTagPlaceholder));
+        OnPropertyChanged(nameof(ShowScanProgress));
+        OnPropertyChanged(nameof(ConnectionStatusText));
+    }
 
     partial void OnFilterTextChanged(string value)
     {
@@ -524,8 +528,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
         RunOnUi(() =>
         {
             _database.SaveScan(tag);
-            LiveTagCount = LiveTags.Count;
             TotalScanCount++;
+            RefreshLiveStats();
 
             var existing = HistoryTags.FirstOrDefault(h => h.UniqueKey == tag.UniqueKey);
             if (existing != null)
@@ -535,12 +539,42 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
             while (HistoryTags.Count > 500)
                 HistoryTags.RemoveAt(HistoryTags.Count - 1);
-                
+
             if (IsCloudSyncEnabled)
-            {
                 _cloudSync.EnqueueTag(tag);
-            }
         });
+    }
+
+    private void RefreshLiveStats()
+    {
+        UniqueTagCount = LiveTags.Count;
+        TotalReadCount = LiveTags.Sum(t => t.ReadCount);
+        LiveTagCount = UniqueTagCount;
+        TagStatsDisplay = $"Total: {TotalReadCount}, Unique: {UniqueTagCount}";
+        NotifyTagPanelState();
+    }
+
+    private void StartScanDurationTimer()
+    {
+        _scanDurationTimer ??= new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(200) };
+        _scanDurationTimer.Tick -= OnScanDurationTick;
+        _scanDurationTimer.Tick += OnScanDurationTick;
+        _scanDurationTimer.Start();
+    }
+
+    private void StopScanDurationTimer()
+    {
+        _scanDurationTimer?.Stop();
+    }
+
+    private void OnScanDurationTick(object? sender, EventArgs e)
+    {
+        if (!IsInventoryRunning)
+            return;
+
+        var seconds = (int)(DateTime.Now - _scanStartTime).TotalSeconds;
+        ScanDurationDisplay = $"{seconds}s";
+        RefreshLiveStats();
     }
 
     private void OnNewTagDiscovered(RfidTag tag)
@@ -556,23 +590,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
                 catch { /* ignore */ }
             });
         }
-    }
-
-    private void GenerateSimulatedTag(object? state)
-    {
-        var epc = new byte[12];
-        var tid = new byte[12];
-        _random.NextBytes(epc);
-        _random.NextBytes(tid);
-
-        var tag = RfidTagMapper.FromScanned(
-            BitConverter.ToString(epc).Replace("-", ""),
-            BitConverter.ToString(tid).Replace("-", ""),
-            string.Empty,
-            $"{_random.Next(-90, -30)}");
-        tag.TagType = "TID";
-
-        _tagManager.ProcessTag(tag);
     }
 
     private void LoadHistory()
@@ -597,6 +614,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         StartInventoryCommand.NotifyCanExecuteChanged();
         StopInventoryCommand.NotifyCanExecuteChanged();
         ApplyPowerCommand.NotifyCanExecuteChanged();
+        ToggleSoundCommand.NotifyCanExecuteChanged();
     }
 
     private static void RunOnUi(Action action)
@@ -613,7 +631,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         if (_disposed) return;
         _disposed = true;
 
-        _simulationTimer?.Dispose();
+        StopScanDurationTimer();
         _tagManager.Stop();
         _cloudSync.Stop();
         _bluetooth?.Dispose();
