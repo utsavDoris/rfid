@@ -31,6 +31,17 @@ public sealed class ChainwayReader : IDisposable
     private Thread? _readThread;
     private bool _disposed;
 
+    private volatile bool _intentionalDisconnect;
+    private volatile bool _reconnectInProgress;
+    private int _reconnectAttempts;
+    private DateTime _connectedAtUtc = DateTime.MinValue;
+    private System.Threading.Timer? _keepAliveTimer;
+    private System.Threading.Timer? _reconnectTimer;
+
+    private const int ConnectStabilizationMs = 4000;
+    private const int MaxSilentReconnectAttempts = 4;
+    private const int KeepAliveIntervalMs = 20000;
+
     public event Action<ScannedDevice>? DeviceDiscovered;
     public event Action<string>? DeviceRemoved;
     public event Action? ScanCompleted;
@@ -187,11 +198,15 @@ public sealed class ChainwayReader : IDisposable
         {
             try
             {
-                EnsureScanStopped();
+                PrepareBleLinkForConnect();
 
+                _intentionalDisconnect = false;
+                _reconnectAttempts = 0;
+                _reconnectInProgress = false;
                 _connectTcs = tcs;
                 _connectedDeviceId = deviceId;
                 _epcTidModeConfigured = false;
+                StatusChanged?.Invoke("Connecting via BLE (no Windows pairing)...");
                 Reader.Connect(deviceId, OnConnectionStatusChanged);
             }
             catch (Exception ex)
@@ -202,6 +217,15 @@ public sealed class ChainwayReader : IDisposable
         });
 
         return tcs.Task;
+    }
+
+    /// <summary>Stop watcher and clear stale GATT link before direct BLE connect (avoids pair popup churn).</summary>
+    private void PrepareBleLinkForConnect()
+    {
+        EnsureScanStopped();
+
+        try { Reader.DisConnect(); } catch { /* clear stale session */ }
+        Thread.Sleep(500);
     }
 
     private void EnsureScanStopped()
@@ -216,7 +240,7 @@ public sealed class ChainwayReader : IDisposable
         }
 
         _scanning = false;
-        Thread.Sleep(350);
+        Thread.Sleep(400);
     }
 
     private void OnConnectionStatusChanged(BluetoothConnectionStatus status, BluetoothLEDevice? device)
@@ -229,33 +253,174 @@ public sealed class ChainwayReader : IDisposable
         if (status == BluetoothConnectionStatus.Connected)
         {
             _isConnected = true;
+            _connectedAtUtc = DateTime.UtcNow;
+            _reconnectAttempts = 0;
+            _reconnectInProgress = false;
+            CancelReconnectTimer();
+            StartKeepAlive();
             EnableHardwareTrigger();
             ConnectionChanged?.Invoke(true);
-            StatusChanged?.Invoke("Reader connected.");
+            StatusChanged?.Invoke("R6 connected (direct BLE — no Windows pairing needed).");
             _connectTcs?.TrySetResult(true);
             _connectTcs = null;
+            return;
         }
-        else if (status == BluetoothConnectionStatus.Disconnected)
+
+        if (status != BluetoothConnectionStatus.Disconnected)
+            return;
+
+        // Ignore brief disconnect glitches right after connect (Windows BLE stack).
+        if (IsWithinConnectStabilization() && !_intentionalDisconnect)
         {
-            var wasConnected = _isConnected;
-            StopInventoryInternal();
-            DisableHardwareTrigger();
-
-            _isConnected = false;
-            _epcTidModeConfigured = false;
-
-            if (wasConnected)
-            {
-                ConnectionChanged?.Invoke(false);
-                StatusChanged?.Invoke("Reader disconnected unexpectedly. Reconnect if needed.");
-            }
-
-            if (_connectTcs != null)
-            {
-                _connectTcs.TrySetException(new InvalidOperationException("Failed to connect to reader."));
-                _connectTcs = null;
-            }
+            System.Diagnostics.Debug.WriteLine("Ignoring disconnect during connect stabilization.");
+            TrySilentReconnect();
+            return;
         }
+
+        if (_intentionalDisconnect)
+        {
+            ApplyDisconnectedState(wasConnected: _isConnected, notifyUnexpected: false);
+            return;
+        }
+
+        // Unexpected drop — try silent reconnect before telling the UI.
+        if (!string.IsNullOrEmpty(_connectedDeviceId) && _reconnectAttempts < MaxSilentReconnectAttempts)
+        {
+            TrySilentReconnect();
+            return;
+        }
+
+        ApplyDisconnectedState(wasConnected: true, notifyUnexpected: true);
+    }
+
+    private bool IsWithinConnectStabilization()
+        => (DateTime.UtcNow - _connectedAtUtc).TotalMilliseconds < ConnectStabilizationMs;
+
+    private void TrySilentReconnect()
+    {
+        if (_disposed || _intentionalDisconnect || string.IsNullOrEmpty(_connectedDeviceId))
+            return;
+
+        if (_reconnectInProgress)
+            return;
+
+        _reconnectInProgress = true;
+        _reconnectAttempts++;
+
+        CancelReconnectTimer();
+        _reconnectTimer = new System.Threading.Timer(_ =>
+        {
+            _invoke(() =>
+            {
+                if (_disposed || _intentionalDisconnect || _isConnected)
+                {
+                    _reconnectInProgress = false;
+                    return;
+                }
+
+                try
+                {
+                    StatusChanged?.Invoke($"Reconnecting to R6 (attempt {_reconnectAttempts}/{MaxSilentReconnectAttempts})...");
+                    EnsureScanStopped();
+                    try { Reader.DisConnect(); } catch { /* ignore */ }
+                    Thread.Sleep(300);
+
+                    var tcs = new TaskCompletionSource<bool>();
+                    _connectTcs = tcs;
+                    Reader.Connect(_connectedDeviceId!, OnConnectionStatusChanged);
+
+                    // If reconnect does not complete quickly, allow another attempt.
+                    _reconnectTimer?.Dispose();
+                    _reconnectTimer = new System.Threading.Timer(__ =>
+                    {
+                        _invoke(() =>
+                        {
+                            if (_isConnected || _intentionalDisconnect)
+                            {
+                                _reconnectInProgress = false;
+                                return;
+                            }
+
+                            _reconnectInProgress = false;
+                            if (_reconnectAttempts < MaxSilentReconnectAttempts)
+                                TrySilentReconnect();
+                            else
+                                ApplyDisconnectedState(wasConnected: true, notifyUnexpected: true);
+                        });
+                    }, null, 8000, Timeout.Infinite);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Silent reconnect failed: {ex.Message}");
+                    _reconnectInProgress = false;
+                    if (_reconnectAttempts >= MaxSilentReconnectAttempts)
+                        ApplyDisconnectedState(wasConnected: true, notifyUnexpected: true);
+                    else
+                        TrySilentReconnect();
+                }
+            });
+        }, null, 400, Timeout.Infinite);
+    }
+
+    private void ApplyDisconnectedState(bool wasConnected, bool notifyUnexpected)
+    {
+        CancelReconnectTimer();
+        StopKeepAlive();
+        StopInventoryInternal();
+        DisableHardwareTrigger();
+
+        _isConnected = false;
+        _reconnectInProgress = false;
+        _epcTidModeConfigured = false;
+
+        if (wasConnected)
+        {
+            ConnectionChanged?.Invoke(false);
+            StatusChanged?.Invoke(notifyUnexpected
+                ? "R6 disconnected — select device and Connect again."
+                : "R6 disconnected.");
+        }
+
+        if (_connectTcs != null)
+        {
+            _connectTcs.TrySetException(new InvalidOperationException("Failed to connect to reader."));
+            _connectTcs = null;
+        }
+    }
+
+    private void StartKeepAlive()
+    {
+        StopKeepAlive();
+        _keepAliveTimer = new System.Threading.Timer(_ =>
+        {
+            if (_disposed || !_isConnected || _intentionalDisconnect)
+                return;
+
+            _invoke(() =>
+            {
+                try
+                {
+                    if (IsConnected)
+                        Reader.GetPower();
+                }
+                catch
+                {
+                    // ignore — reconnect logic handles real drops
+                }
+            });
+        }, null, KeepAliveIntervalMs, KeepAliveIntervalMs);
+    }
+
+    private void StopKeepAlive()
+    {
+        _keepAliveTimer?.Dispose();
+        _keepAliveTimer = null;
+    }
+
+    private void CancelReconnectTimer()
+    {
+        _reconnectTimer?.Dispose();
+        _reconnectTimer = null;
     }
 
     /// <summary>InventoryForm.btnInventory_Click + readTag background thread.</summary>
@@ -367,6 +532,10 @@ public sealed class ChainwayReader : IDisposable
     {
         _invoke(() =>
         {
+            _intentionalDisconnect = true;
+            CancelReconnectTimer();
+            _reconnectInProgress = false;
+            StopKeepAlive();
             StopInventoryInternal();
             DisableHardwareTrigger();
             try { Reader.DisConnect(); } catch { /* ignore */ }
@@ -641,6 +810,8 @@ public sealed class ChainwayReader : IDisposable
         StopInventoryForShutdown();
         ShutdownConnection();
 
+        CancelReconnectTimer();
+        StopKeepAlive();
         StopTriggerPump();
     }
 
@@ -673,6 +844,7 @@ public sealed class ChainwayReader : IDisposable
 
     private void ShutdownConnection()
     {
+        _intentionalDisconnect = true;
         try { Reader.DisConnect(); } catch { /* ignore */ }
         _isConnected = false;
         _epcTidModeConfigured = false;

@@ -236,10 +236,10 @@ public partial class MainViewModel : ObservableObject, IDisposable
             {
                 await bluetooth.StopScanAsync();
                 IsScanning = false;
-                await Task.Delay(450).ConfigureAwait(true);
+                await Task.Delay(500).ConfigureAwait(true);
             }
 
-            StatusMessage = $"Connecting to {SelectedDevice.DeviceLabel}...";
+            StatusMessage = $"Connecting to {SelectedDevice.DeviceLabel} (direct BLE — do not pair in Windows)...";
             await bluetooth.ConnectAsync(SelectedDevice);
 
             if (!bluetooth.IsConnected)

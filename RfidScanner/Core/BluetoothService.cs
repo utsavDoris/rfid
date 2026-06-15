@@ -82,10 +82,10 @@ public class BluetoothService : IDisposable
         if (IsScanning)
         {
             await StopScanAsync().ConfigureAwait(true);
-            await Task.Delay(450).ConfigureAwait(true);
+            await Task.Delay(500).ConfigureAwait(true);
         }
 
-        StatusChanged?.Invoke($"Connecting to {device.DeviceLabel}...");
+        StatusChanged?.Invoke($"Connecting to {device.DeviceLabel} (direct BLE)...");
         await _reader.ConnectAsync(device.Address).ConfigureAwait(true);
 
         if (_reader.IsConnected)
