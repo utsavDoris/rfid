@@ -34,9 +34,9 @@ public class BluetoothService : IDisposable
         _bleHost.Start();
         _reader = new ChainwayReader(_bleHost);
         _reader.StatusChanged += msg => RunOnUiThread(() => StatusChanged?.Invoke(msg));
-        _reader.DeviceDiscovered += device => RunOnUiThread(() => OnDeviceDiscovered(device), async: true);
-        _reader.DeviceRemoved += id => RunOnUiThread(() => DeviceRemoved?.Invoke(id), async: true);
-        _reader.ScanCompleted += () => RunOnUiThread(() => ScanCompleted?.Invoke(), async: true);
+        _reader.DeviceDiscovered += device => RunOnUiThread(() => OnDeviceDiscovered(device));
+        _reader.DeviceRemoved += id => RunOnUiThread(() => DeviceRemoved?.Invoke(id));
+        _reader.ScanCompleted += () => RunOnUiThread(() => ScanCompleted?.Invoke());
         _reader.ConnectionChanged += connected => RunOnUiThread(() => ConnectionChanged?.Invoke(connected));
         _reader.HardwareTriggerPressed += () => RunOnUiThread(() => HardwareTriggerPressed?.Invoke());
         _reader.TagReceived += tag => TagReceived?.Invoke(

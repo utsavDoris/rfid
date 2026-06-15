@@ -213,19 +213,21 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void OnDeviceDiscovered(BluetoothDeviceInfo device)
     {
-        RunOnUiAsync(() =>
-        {
-            if (Devices.Any(d =>
-                    string.Equals(d.Address, device.Address, StringComparison.OrdinalIgnoreCase) ||
-                    (!string.IsNullOrWhiteSpace(device.Mac) &&
-                     string.Equals(d.Mac, device.Mac, StringComparison.OrdinalIgnoreCase))))
-                return;
+        RunOnUi(() => AddDeviceIfNew(device));
+    }
 
-            if (device.IsChainway)
-                Devices.Insert(0, device);
-            else
-                Devices.Add(device);
-        });
+    private void AddDeviceIfNew(BluetoothDeviceInfo device)
+    {
+        if (Devices.Any(d =>
+                string.Equals(d.Address, device.Address, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(device.Mac) &&
+                 string.Equals(d.Mac, device.Mac, StringComparison.OrdinalIgnoreCase))))
+            return;
+
+        if (device.IsChainway)
+            Devices.Insert(0, device);
+        else
+            Devices.Add(device);
     }
 
     private void OnDeviceRemoved(string deviceId)
@@ -616,15 +618,6 @@ public partial class MainViewModel : ObservableObject, IDisposable
             action();
         else
             dispatcher.Invoke(action);
-    }
-
-    private static void RunOnUiAsync(Action action)
-    {
-        var dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher == null || dispatcher.CheckAccess())
-            action();
-        else
-            dispatcher.BeginInvoke(action);
     }
 
     public void Dispose()

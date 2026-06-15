@@ -20,6 +20,7 @@ public sealed class ChainwayReader : IDisposable
     private RFIDWithUHFBEL? _readerInstance;
     private RFIDWithUHFBEL Reader => _readerInstance ?? (_readerInstance = RFIDWithUHFBEL.GetInstance());
     private readonly Action<Action> _invoke;
+    private readonly Action<Action> _post;
     private readonly WinFormsMessageHost _messageHost;
     private readonly bool _ownMessageHost;
     private readonly object _scanLock = new();
@@ -69,12 +70,14 @@ public sealed class ChainwayReader : IDisposable
         _messageHost = messageHost ?? new WinFormsMessageHost();
         _messageHost.Start();
         _invoke = _messageHost.Invoke;
+        _post = _messageHost.Post;
     }
 
     /// <summary>MainForm.btnSearch_Click — start BLE watcher on UI thread.</summary>
     public void BeginScan()
     {
-        _invoke(() =>
+        // Post (non-blocking) so the WPF dispatcher can render devices while scan runs.
+        _post(() =>
         {
             lock (_scanLock)
             {
@@ -100,7 +103,7 @@ public sealed class ChainwayReader : IDisposable
     /// <summary>MainForm.btnSearch_Click (stop) — stop BLE watcher.</summary>
     public void StopScan()
     {
-        _invoke(() =>
+        _post(() =>
         {
             lock (_scanLock)
             {
@@ -116,8 +119,22 @@ public sealed class ChainwayReader : IDisposable
     private void FinishScan(string message)
     {
         _scanning = false;
+
+        List<ScannedDevice> snapshot;
+        lock (_scanLock)
+            snapshot = _scanResults.ToList();
+
+        // Re-publish all results so the UI list is always filled when scan ends.
+        foreach (var device in snapshot)
+            PublishDeviceDiscovered(device);
+
         StatusChanged?.Invoke(message);
         ScanCompleted?.Invoke();
+    }
+
+    private void PublishDeviceDiscovered(ScannedDevice device)
+    {
+        DeviceDiscovered?.Invoke(device);
     }
 
     /// <summary>MainForm.ScanDeviceEventHandler</summary>
@@ -149,7 +166,7 @@ public sealed class ChainwayReader : IDisposable
             }
 
             if (discovered != null)
-                DeviceDiscovered?.Invoke(discovered);
+                PublishDeviceDiscovered(discovered);
         }
         else if (!string.IsNullOrEmpty(removeId))
         {

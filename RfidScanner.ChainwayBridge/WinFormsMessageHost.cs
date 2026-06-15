@@ -67,6 +67,32 @@ public sealed class WinFormsMessageHost : IDisposable
         }
     }
 
+    /// <summary>Non-blocking post — use for BLE scan so WPF thread is not frozen.</summary>
+    public void Post(Action action)
+    {
+        if (_disposed)
+            return;
+
+        if (!_running || _form == null || _form.IsDisposed)
+            Start();
+
+        var form = _form;
+        if (form == null || form.IsDisposed)
+            return;
+
+        try
+        {
+            if (form.InvokeRequired)
+                form.BeginInvoke(action);
+            else
+                action();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Host is shutting down.
+        }
+    }
+
     private void ThreadProc()
     {
         try

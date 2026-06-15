@@ -115,66 +115,31 @@
                             BorderBrush="{StaticResource BorderBrush}"
                             BorderThickness="1"
                             CornerRadius="6"
+                            Background="{StaticResource BgCardBrush}"
                             Margin="0,0,0,10">
-                        <ListBox ItemsSource="{Binding Devices}"
-                                 SelectedItem="{Binding SelectedDevice}"
+                        <ListBox x:Name="DeviceListBox"
+                                 ItemsSource="{Binding Devices}"
+                                 SelectedItem="{Binding SelectedDevice, Mode=TwoWay}"
                                  BorderThickness="0"
                                  Background="Transparent"
                                  ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                 Height="220">
-                            <ListBox.ItemContainerStyle>
-                                <Style TargetType="ListBoxItem">
-                                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                    <Setter Property="Padding" Value="0"/>
-                                    <Setter Property="Margin" Value="0,0,0,4"/>
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="ListBoxItem">
-                                                <ContentPresenter/>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </ListBox.ItemContainerStyle>
+                                 MinHeight="220"
+                                 MaxHeight="280"
+                                 PreviewMouseLeftButtonUp="DeviceListBox_OnPreviewMouseLeftButtonUp">
                             <ListBox.ItemTemplate>
                                 <DataTemplate>
-                                    <Button Style="{StaticResource DeviceListItemButton}"
-                                            Margin="0"
-                                            Command="{Binding DataContext.ConnectToDeviceCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
-                                            CommandParameter="{Binding}">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="4"/>
-                                                <ColumnDefinition Width="*"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Border Grid.Column="0"
-                                                    CornerRadius="2"
-                                                    Margin="0,2,8,2">
-                                                <Border.Style>
-                                                    <Style TargetType="Border">
-                                                        <Setter Property="Background" Value="{StaticResource BorderBrush}"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding IsChainway}" Value="True">
-                                                                <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Border.Style>
-                                            </Border>
-                                            <StackPanel Grid.Column="1">
-                                                <TextBlock Text="{Binding DeviceLabel}"
-                                                           FontWeight="SemiBold"
-                                                           FontSize="13"
-                                                           Foreground="{StaticResource TextPrimaryBrush}"
-                                                           TextTrimming="CharacterEllipsis"/>
-                                                <TextBlock FontSize="11"
-                                                           Foreground="{StaticResource TextSecondaryBrush}"
-                                                           Margin="0,2,0,0"
-                                                           TextTrimming="CharacterEllipsis"
-                                                           Text="{Binding Mac}"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Button>
+                                    <StackPanel Margin="4,6">
+                                        <TextBlock Text="{Binding DeviceLabel}"
+                                                   FontWeight="SemiBold"
+                                                   FontSize="13"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Text="{Binding Mac}"
+                                                   FontSize="11"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                                   Margin="0,2,0,0"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
                                 </DataTemplate>
                             </ListBox.ItemTemplate>
                         </ListBox>
