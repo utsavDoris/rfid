@@ -8,7 +8,8 @@
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
     <RootNamespace>RfidScanner</RootNamespace>
-    <AssemblyName>RfidScanner</AssemblyName>
+    <AssemblyName>AcurisDesktop</AssemblyName>
+    <Product>Acuris Desktop</Product>
     <StartupObject>RfidScanner.App</StartupObject>
   </PropertyGroup>
 
