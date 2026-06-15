@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -59,7 +61,30 @@ public class BluetoothService : IDisposable
             Address = device.DeviceId,
             Mac = device.Mac,
             IsBle = true,
-            IsChainway = device.IsChainway
+            IsChainway = device.IsChainway,
+            IsSystemPaired = device.IsSystemPaired
+        });
+    }
+
+    public async Task<IReadOnlyList<BluetoothDeviceInfo>> LoadPairedDevicesAsync()
+    {
+        var paired = await _reader.LoadPairedDevicesAsync().ConfigureAwait(true);
+        return paired.Select(d => new BluetoothDeviceInfo
+        {
+            Name = d.Name,
+            Address = d.DeviceId,
+            Mac = d.Mac,
+            IsBle = true,
+            IsChainway = d.IsChainway,
+            IsSystemPaired = true
+        }).ToList();
+    }
+
+    public static void OpenWindowsBluetoothSettings()
+    {
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("ms-settings:bluetooth")
+        {
+            UseShellExecute = true
         });
     }
 

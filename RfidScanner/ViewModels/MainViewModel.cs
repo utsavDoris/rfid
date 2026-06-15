@@ -97,6 +97,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
         _tagManager.NewTagDiscovered += OnNewTagDiscovered;
         _tagManager.Start();
         LoadHistory();
+        _ = LoadPairedDevicesAsync();
     }
 
     private void InitializeBluetooth()
@@ -168,6 +169,52 @@ public partial class MainViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
+    private async Task LoadPairedDevicesAsync()
+    {
+        if (_bluetooth == null)
+        {
+            StatusMessage = "BLE reader is not available.";
+            return;
+        }
+
+        if (IsConnected)
+        {
+            StatusMessage = "Disconnect the reader before loading devices.";
+            return;
+        }
+
+        if (IsScanning)
+            await _bluetooth.StopScanAsync();
+
+        try
+        {
+            StatusMessage = "Loading Windows paired Bluetooth devices...";
+            var paired = await _bluetooth.LoadPairedDevicesAsync();
+
+            Devices.Clear();
+            foreach (var device in paired)
+                Devices.Add(device);
+
+            SelectedDevice = Devices.FirstOrDefault(d => d.IsChainway) ?? Devices.FirstOrDefault();
+
+            StatusMessage = Devices.Count > 0
+                ? $"Found {Devices.Count} paired R6 device(s). Click Connect here — do not use the Windows Bluetooth popup."
+                : "No paired R6 found. Click 'Windows Bluetooth' to pair Nordic_UART_CW, then Load Paired again.";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Could not load paired devices: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
+    private void OpenBluetoothSettings()
+    {
+        BluetoothService.OpenWindowsBluetoothSettings();
+        StatusMessage = "Pair Nordic_UART_CW in Windows Bluetooth, then click Load Paired (do not Connect from Windows).";
+    }
+
+    [RelayCommand]
     private async Task ScanDevicesAsync()
     {
         if (_bluetooth == null)
@@ -213,15 +260,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
 
     private void OnDeviceRemoved(string deviceId)
     {
-        RunOnUi(() =>
-        {
-            if (IsConnected && SelectedDevice?.Address == deviceId)
-                return;
-
-            var existing = Devices.FirstOrDefault(d => d.Address == deviceId);
-            if (existing != null)
-                Devices.Remove(existing);
-        });
+        // Ignore watcher removals — they trigger Windows popup churn and false disconnects.
     }
 
     private void OnScanCompleted()
@@ -254,7 +293,7 @@ public partial class MainViewModel : ObservableObject, IDisposable
             if (IsScanning)
                 await bluetooth.StopScanAsync();
 
-            StatusMessage = $"Connecting to {SelectedDevice.DeviceLabel}...";
+            StatusMessage = $"Connecting via system Bluetooth to {SelectedDevice.DeviceLabel}...";
             await bluetooth.ConnectAsync(SelectedDevice);
 
             if (!bluetooth.IsConnected)
@@ -263,8 +302,8 @@ public partial class MainViewModel : ObservableObject, IDisposable
             var pwr = bluetooth.GetPower();
             if (pwr > 0) TransmitPower = pwr;
 
-            // Let the BLE link stabilize before starting inventory (matches official demo flow).
-            await Task.Delay(400).ConfigureAwait(true);
+            // Let the Windows BLE link stabilize before inventory.
+            await Task.Delay(800).ConfigureAwait(true);
 
             if (!bluetooth.IsConnected)
             {

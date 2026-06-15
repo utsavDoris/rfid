@@ -43,25 +43,40 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Text="Bluetooth Devices"
-                               FontSize="15" FontWeight="SemiBold"
-                               Foreground="{StaticResource TextPrimaryBrush}"
-                               Margin="0,0,0,10"/>
+                    <StackPanel Grid.Row="0">
+                        <TextBlock Text="Bluetooth Devices"
+                                   FontSize="15" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                   Margin="0,0,0,6"/>
+                        <TextBlock Text="Pair in Windows Bluetooth first, then Load Paired and Connect here."
+                                   FontSize="10"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,0,0,10"/>
+                    </StackPanel>
 
-                    <Button Grid.Row="1"
-                            Command="{Binding ScanDevicesCommand}"
-                            Margin="0,0,0,10">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
-                                <Setter Property="Content" Value="Scan Devices"/>
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsScanning}" Value="True">
-                                        <Setter Property="Content" Value="Stop Scan"/>
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
+                    <StackPanel Grid.Row="1" Margin="0,0,0,10">
+                        <Button Command="{Binding LoadPairedDevicesCommand}"
+                                Style="{StaticResource PrimaryButton}"
+                                Content="Load Paired (System)"
+                                Margin="0,0,0,6"/>
+                        <Button Command="{Binding OpenBluetoothSettingsCommand}"
+                                Style="{StaticResource SecondaryButton}"
+                                Content="Windows Bluetooth"
+                                Margin="0,0,0,6"/>
+                        <Button Command="{Binding ScanDevicesCommand}">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource SecondaryButton}">
+                                    <Setter Property="Content" Value="Scan New Devices"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsScanning}" Value="True">
+                                            <Setter Property="Content" Value="Stop Scan"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
 
                     <ListBox Grid.Row="2"
                              ItemsSource="{Binding Devices}"
@@ -72,7 +87,7 @@
                                 <StackPanel>
                                     <TextBlock Text="{Binding DeviceLabel}" FontWeight="SemiBold"/>
                                     <TextBlock FontSize="11" Foreground="{StaticResource TextSecondaryBrush}">
-                                        <Run Text="{Binding ConnectionType, Mode=OneWay}"/>
+                                        <Run Text="{Binding SourceLabel, Mode=OneWay}"/>
                                         <Run Text=" · "/>
                                         <Run Text="{Binding Mac, Mode=OneWay}"/>
                                     </TextBlock>
@@ -235,10 +250,11 @@
         </Grid>
 
         <TextBlock Grid.Row="2"
-                   Text="Chainway R6: power on device, click Scan Devices, select Nordic_UART_CW, then Connect"
+                   Text="Tip: Pair R6 in Windows Bluetooth, use Load Paired, then Connect in this app only — do not Connect/Remove from Windows popup."
                    Foreground="{StaticResource TextSecondaryBrush}"
                    FontSize="11"
                    Margin="0,10,0,0"
+                   TextWrapping="Wrap"
                    HorizontalAlignment="Center"/>
     </Grid>
 </UserControl>

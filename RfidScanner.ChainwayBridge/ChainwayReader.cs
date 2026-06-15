@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using BLEDeviceAPI;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Enumeration;
+using Windows.Foundation;
 
 namespace RfidScanner.ChainwayBridge;
 
@@ -124,6 +125,14 @@ public sealed class ChainwayReader : IDisposable
         }
         else if (!string.IsNullOrEmpty(removeId))
         {
+            // Windows BLE watcher fires "removed" while connected — ignore to avoid popup/disconnect churn.
+            if (_isConnected || !_scanning)
+                return;
+
+            if (!string.IsNullOrEmpty(_connectedDeviceId) &&
+                string.Equals(removeId, _connectedDeviceId, StringComparison.OrdinalIgnoreCase))
+                return;
+
             lock (_scanLock)
             {
                 var removed = _scanResults.FirstOrDefault(d => d.DeviceId == removeId);
@@ -156,7 +165,51 @@ public sealed class ChainwayReader : IDisposable
         }
     }
 
-    /// <summary>MainForm.btnConn_Click — Connect using full Windows BLE device Id (SubItems[2]).</summary>
+    /// <summary>Load devices already paired in Windows Bluetooth Settings (recommended).</summary>
+    public Task<IReadOnlyList<ScannedDevice>> LoadPairedDevicesAsync()
+    {
+        var tcs = new TaskCompletionSource<IReadOnlyList<ScannedDevice>>();
+        _invoke(() => _ = LoadPairedDevicesCoreAsync(tcs));
+        return tcs.Task;
+    }
+
+    private async Task LoadPairedDevicesCoreAsync(TaskCompletionSource<IReadOnlyList<ScannedDevice>> tcs)
+    {
+        try
+        {
+            var selector = BluetoothLEDevice.GetDeviceSelectorFromPairingState(true);
+            var infos = await AwaitWinRt(DeviceInformation.FindAllAsync(selector)).ConfigureAwait(true);
+
+            var list = new List<ScannedDevice>();
+            foreach (var info in infos)
+            {
+                var name = string.IsNullOrWhiteSpace(info.Name) ? "Unknown" : info.Name;
+                if (!IsChainwayName(name))
+                    continue;
+
+                var mac = info.Id.Length >= 17
+                    ? info.Id.Substring(info.Id.Length - 17, 17)
+                    : info.Id;
+
+                list.Add(new ScannedDevice
+                {
+                    Name = name,
+                    DeviceId = info.Id,
+                    Mac = mac,
+                    IsChainway = true,
+                    IsSystemPaired = true
+                });
+            }
+
+            tcs.TrySetResult(list);
+        }
+        catch (Exception ex)
+        {
+            tcs.TrySetException(ex);
+        }
+    }
+
+    /// <summary>MainForm.btnConn_Click — Connect using Windows paired device Id.</summary>
     public Task ConnectAsync(string deviceId)
     {
         if (string.IsNullOrWhiteSpace(deviceId))
@@ -164,17 +217,50 @@ public sealed class ChainwayReader : IDisposable
 
         var tcs = new TaskCompletionSource<bool>();
 
-        _invoke(() =>
+        _invoke(() => _ = ConnectCoreAsync(deviceId, tcs));
+
+        return tcs.Task;
+    }
+
+    private async Task ConnectCoreAsync(string deviceId, TaskCompletionSource<bool> tcs)
+    {
+        try
         {
             EnsureScanStopped();
+
+            StatusChanged?.Invoke("Preparing system Bluetooth connection...");
+            await EnsureSystemPairedAsync(deviceId).ConfigureAwait(true);
 
             _connectTcs = tcs;
             _connectedDeviceId = deviceId;
             _epcTidModeConfigured = false;
             Reader.Connect(deviceId, OnConnectionStatusChanged);
-        });
+        }
+        catch (Exception ex)
+        {
+            _connectTcs = null;
+            tcs.TrySetException(ex);
+        }
+    }
 
-        return tcs.Task;
+    private static async Task EnsureSystemPairedAsync(string deviceId)
+    {
+        var info = await AwaitWinRt(DeviceInformation.CreateFromIdAsync(deviceId)).ConfigureAwait(true);
+        if (info.Pairing == null || info.Pairing.IsPaired)
+            return;
+
+        if (!info.Pairing.CanPair)
+            throw new InvalidOperationException(
+                "R6 is not paired with Windows. Open Settings → Bluetooth, pair Nordic_UART_CW, then click Load Paired.");
+
+        var result = await AwaitWinRt(info.Pairing.PairAsync()).ConfigureAwait(true);
+
+        if (result.Status != DevicePairingResultStatus.Paired &&
+            result.Status != DevicePairingResultStatus.AlreadyPaired)
+        {
+            throw new InvalidOperationException(
+                $"Windows pairing failed ({result.Status}). Pair the R6 in Windows Bluetooth Settings first.");
+        }
     }
 
     private void EnsureScanStopped()
@@ -402,6 +488,23 @@ public sealed class ChainwayReader : IDisposable
         return 0;
     }
 
+    private static Task<T> AwaitWinRt<T>(IAsyncOperation<T> operation)
+    {
+        var tcs = new TaskCompletionSource<T>();
+        operation.Completed = (op, _) =>
+        {
+            try
+            {
+                tcs.TrySetResult(op.GetResults());
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        };
+        return tcs.Task;
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -427,6 +530,7 @@ public sealed class ScannedDevice
     public string DeviceId { get; set; } = string.Empty;
     public string Mac { get; set; } = string.Empty;
     public bool IsChainway { get; set; }
+    public bool IsSystemPaired { get; set; }
 }
 
 public sealed class ScannedTag
